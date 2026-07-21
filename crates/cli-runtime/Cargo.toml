@@ -1,0 +1,31 @@
+[package]
+name = "tokyo-cli-runtime"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+publish.workspace = true
+description = "Runtime support for route-first Tokyo CLIs"
+keywords = ["cli", "runtime", "openapi"]
+categories = ["command-line-interface", "development-tools"]
+
+[dependencies]
+base64 = "0.22.1"
+clap = { workspace = true, features = ["derive"] }
+jsonwebtoken = { version = "10.4.0", default-features = false, features = ["aws_lc_rs", "use_pem"] }
+keyring = { version = "3.6.3", features = ["apple-native", "windows-native", "linux-native"] }
+oauth2 = { version = "5.0.0", default-features = false, features = ["ureq", "timing-resistant-secret-traits"] }
+rpassword = "7.4.0"
+serde = { workspace = true, features = ["derive"] }
+serde_json.workspace = true
+sha2 = "0.10.9"
+thiserror.workspace = true
+tiny_http = "0.12.0"
+ureq = "2.10.1"
+url.workspace = true
+webbrowser = "1.2.1"
+
+[lints]
+workspace = true

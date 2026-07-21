@@ -1,0 +1,16 @@
+/target
+/generated
+node_modules/
+/.cache
+/.tmp
+/.env
+/.env.local
+.DS_Store
+
+# tokyo-emit-cli golden fixtures are standalone crates (their own [workspace]
+# table) so `cargo build` inside them, done routinely when verifying the
+# emitter, produces its own build artifacts — only the generated source
+# should be checked in, not these. Cargo.lock is checked in (not ignored):
+# compile_gate.rs runs `cargo check --locked` against these fixtures, so the
+# lockfile must be committed for CI to have something to lock against.
+crates/codegen/emit-cli/tests/golden/*/target/

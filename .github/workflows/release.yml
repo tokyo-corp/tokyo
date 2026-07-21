@@ -1,0 +1,146 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+jobs:
+  validate:
+    name: Validate release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@1.90.0
+        with:
+          components: clippy,rustfmt
+      - uses: Swatinem/rust-cache@v2
+      - run: python3 scripts/verify-release.py
+      - run: cargo fmt --all --check
+      - run: cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
+      - run: cargo test --workspace --locked
+      - run: cargo test -p tokyo-emit-cli --test compile_gate --locked -- --ignored
+      - name: Package every workspace crate
+        run: >-
+          cargo package --locked --no-verify
+          -p tokyo-ir
+          -p tokyo-cli-runtime
+          -p tokyo-import-openapi
+          -p tokyo-codegen-engine
+          -p tokyo-emit-cli
+          -p tokyo-codegen
+
+  publish-crates:
+    name: Publish crates.io packages
+    needs: validate
+    runs-on: ubuntu-latest
+    environment: release
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@1.90.0
+      - uses: rust-lang/crates-io-auth-action@v1
+        id: auth
+      - run: python3 scripts/publish-crates.py
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}
+
+  build-binaries:
+    name: Build ${{ matrix.target }}
+    needs: validate
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-24.04
+            target: x86_64-unknown-linux-gnu
+            archive: tar
+          - runner: ubuntu-24.04-arm
+            target: aarch64-unknown-linux-gnu
+            archive: tar
+          - runner: macos-15-intel
+            target: x86_64-apple-darwin
+            archive: tar
+          - runner: macos-14
+            target: aarch64-apple-darwin
+            archive: tar
+          - runner: windows-2025
+            target: x86_64-pc-windows-msvc
+            archive: zip
+    runs-on: ${{ matrix.runner }}
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@1.90.0
+        with:
+          targets: ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
+      - run: cargo build --release --locked -p tokyo-codegen --bin tokyo --target "${{ matrix.target }}"
+        if: matrix.archive == 'tar'
+      - name: Archive Unix binary
+        if: matrix.archive == 'tar'
+        run: |
+          mkdir -p dist
+          cp "target/${{ matrix.target }}/release/tokyo" dist/
+          cp LICENSE README.md dist/
+          tar -czf "tokyo-${GITHUB_REF_NAME}-${{ matrix.target }}.tar.gz" -C dist tokyo LICENSE README.md
+      - name: Build Windows binary
+        if: matrix.archive == 'zip'
+        shell: pwsh
+        run: cargo build --release --locked -p tokyo-codegen --bin tokyo --target "${{ matrix.target }}"
+      - name: Archive Windows binary
+        if: matrix.archive == 'zip'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path dist
+          Copy-Item "target/${{ matrix.target }}/release/tokyo.exe" dist/
+          Copy-Item LICENSE, README.md dist/
+          Compress-Archive -Path dist/* -DestinationPath "tokyo-$env:GITHUB_REF_NAME-${{ matrix.target }}.zip"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: tokyo-${{ matrix.target }}
+          path: tokyo-${{ github.ref_name }}-${{ matrix.target }}.*
+          if-no-files-found: error
+
+  github-release:
+    name: Publish GitHub release
+    needs:
+      - publish-crates
+      - build-binaries
+    runs-on: ubuntu-latest
+    environment: release
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v5
+        with:
+          pattern: tokyo-*
+          path: artifacts
+          merge-multiple: true
+      - name: Create checksums
+        working-directory: artifacts
+        run: sha256sum tokyo-* > SHA256SUMS
+      - name: Create or update release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view "${GITHUB_REF_NAME}" >/dev/null 2>&1; then
+            gh release upload "${GITHUB_REF_NAME}" artifacts/* --clobber
+          else
+            gh release create "${GITHUB_REF_NAME}" artifacts/* --verify-tag --generate-notes
+          fi

@@ -9,7 +9,6 @@ description: Guides changes to Tokyo project scaffolding, route discovery, gener
 - Treat `apps/codegen-cli/src/main.rs` as the filesystem-owning frontend: CLI commands, `scaffold_files`, `install_scaffold`, route discovery, manifest migration, hand-edit checks, stale-file cleanup, staging, and transactional writes live here.
 - Treat `crates/codegen/codegen-engine/src/lib.rs` as path-free orchestration. Keep paths, manifests, and filesystem transactions out of this crate.
 - Treat `crates/codegen/emit-cli/src/lib.rs` and `crates/codegen/emit-cli/src/templates/` as deterministic source emission from in-memory `tokyo_ir::Api`.
-- Keep route-first behavior aligned with `docs/framework.md` and `docs/routes.md`.
 
 ## Preserve ownership
 

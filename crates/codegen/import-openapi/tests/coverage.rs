@@ -21,6 +21,29 @@ fn unsupported(fragment: &str, expected: &str) {
 }
 
 #[test]
+fn rejects_pathologically_deep_schema_nesting_without_crashing() {
+    // Deeply nested inline objects must be rejected as an error rather than
+    // recursing until the process aborts on a stack overflow. The YAML/JSON
+    // deserializers enforce their own recursion limit, so this is caught at
+    // parse time before conversion — the point of the test is that the outcome
+    // is a clean `Err`, never a crash.
+    let depth = 500;
+    let mut fragment = String::from("components:\n  schemas:\n    Deep:\n");
+    let mut indent = String::from("      ");
+    for _ in 0..depth {
+        fragment.push_str(&format!(
+            "{indent}type: object\n{indent}properties:\n{indent}  a:\n"
+        ));
+        indent.push_str("    ");
+    }
+    fragment.push_str(&format!("{indent}type: string\n"));
+    assert!(
+        tokyo_import_openapi::import_openapi_yaml_document(&document(&fragment)).is_err(),
+        "deeply nested schema should be rejected, not crash"
+    );
+}
+
+#[test]
 fn imports_coverage_fixture_into_typed_behavior() {
     let api = tokyo_import_openapi::import_openapi_yaml_document(include_str!(
         "../../../../examples/openapi-coverage.yaml"

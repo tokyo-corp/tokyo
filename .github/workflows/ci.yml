@@ -40,14 +40,28 @@ jobs:
       - run: cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
 
   rust-tests:
-    name: Rust unit tests
-    runs-on: ubuntu-latest
+    name: Rust unit tests (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
     steps:
       - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@1.97.1
       - uses: Swatinem/rust-cache@v2
       - run: cargo test --workspace --locked
+
+  cargo-deny:
+    name: cargo-deny (advisories, licenses, bans, sources)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+      - uses: EmbarkStudios/cargo-deny-action@v2
+        with:
+          command: check
 
   generated-cli-compile:
     name: Generated CLI compile gate

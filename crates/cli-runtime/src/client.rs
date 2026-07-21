@@ -277,6 +277,11 @@ impl Client {
     ) -> Result<BufferedResponse, crate::error::ClientError> {
         let selected_auth = self.select_authentication_for_request(auth)?;
         let url = self.resolve_request_url(target, query, selected_auth)?;
+        // A URL-embedded API key (`QueryKey` scheme) must never reach the
+        // durable session transcript or the debug log; redact it there while
+        // the real credentialed URL is still used for the request itself.
+        let loggable_url =
+            redact_secret_query_parameters(&url, &secret_query_parameter_names(selected_auth));
         let started = std::time::Instant::now();
         let result = self.execute_buffered_http_request(
             method,
@@ -298,7 +303,7 @@ impl Client {
         };
         crate::session::append_completed_request_to_session_transcript(
             method.as_str(),
-            &url,
+            &loggable_url,
             &outcome,
             elapsed_ms,
         );
@@ -306,7 +311,7 @@ impl Client {
             eprintln!(
                 "[debug] {} {} -> {outcome} ({elapsed_ms}ms)",
                 method.as_str(),
-                url,
+                loggable_url,
             );
         }
         result
@@ -339,6 +344,10 @@ impl Client {
     {
         let selected_auth = self.select_authentication_for_request(auth)?;
         let url = self.resolve_request_url(target, query, selected_auth)?;
+        // See `request`: keep URL-embedded API keys out of the transcript/debug
+        // log while still issuing the request with the real credentialed URL.
+        let loggable_url =
+            redact_secret_query_parameters(&url, &secret_query_parameter_names(selected_auth));
         let started = std::time::Instant::now();
         let result = self.execute_streaming_http_request(
             method,
@@ -359,7 +368,7 @@ impl Client {
         };
         crate::session::append_completed_request_to_session_transcript(
             method.as_str(),
-            &url,
+            &loggable_url,
             &outcome,
             elapsed_ms,
         );
@@ -367,7 +376,7 @@ impl Client {
             eprintln!(
                 "[debug] {} {} -> {outcome} ({elapsed_ms}ms)",
                 method.as_str(),
-                url,
+                loggable_url,
             );
         }
         result
@@ -960,6 +969,56 @@ fn append_query_parameters_to_url(
         result.push_str(fragment);
     }
     Ok(result)
+}
+
+/// Query-parameter names whose values carry a secret — API keys placed in the
+/// URL via a `QueryKey` scheme. Everything else (bearer, basic, header, cookie)
+/// travels in headers and never enters the URL.
+fn secret_query_parameter_names(auth: Option<&'static AuthAlternative>) -> Vec<&'static str> {
+    let Some(auth) = auth else {
+        return Vec::new();
+    };
+    auth.schemes
+        .iter()
+        .filter_map(|scheme| match scheme.kind {
+            AuthSchemeKind::QueryKey(name) => Some(name),
+            _ => None,
+        })
+        .collect()
+}
+
+/// Returns `url` with the value of every `secret_names` query parameter replaced
+/// by `REDACTED`, so a URL-embedded credential never reaches a durable log. The
+/// result is for display only; the unredacted URL is what the request uses.
+fn redact_secret_query_parameters(url: &str, secret_names: &[&str]) -> String {
+    if secret_names.is_empty() {
+        return url.to_string();
+    }
+    let Ok(parsed) = url::Url::parse(url) else {
+        return url.to_string();
+    };
+    if parsed.query().is_none() {
+        return url.to_string();
+    }
+    let redacted_pairs: Vec<(String, String)> = parsed
+        .query_pairs()
+        .map(|(key, value)| {
+            if secret_names.iter().any(|name| *name == key.as_ref()) {
+                (key.into_owned(), "REDACTED".to_string())
+            } else {
+                (key.into_owned(), value.into_owned())
+            }
+        })
+        .collect();
+    let mut rebuilt = parsed.clone();
+    rebuilt.set_query(None);
+    {
+        let mut serializer = rebuilt.query_pairs_mut();
+        for (key, value) in &redacted_pairs {
+            serializer.append_pair(key, value);
+        }
+    }
+    rebuilt.to_string()
 }
 
 fn percent_encode_query_component(value: &str, allow_reserved: bool) -> String {
@@ -1672,6 +1731,27 @@ mod auth_tests {
             Arc::new(MemoryStore::default()),
             false,
         )
+    }
+
+    #[test]
+    fn redacts_query_key_secrets_before_logging() {
+        let redacted = redact_secret_query_parameters(
+            "https://api.example.test/items?api_key=sk_live_secret&page=2",
+            &["api_key"],
+        );
+        assert!(
+            !redacted.contains("sk_live_secret"),
+            "secret leaked into loggable url: {redacted}"
+        );
+        assert!(redacted.contains("api_key=REDACTED"), "{redacted}");
+        assert!(redacted.contains("page=2"), "{redacted}");
+    }
+
+    #[test]
+    fn redaction_leaves_urls_without_secret_params_unchanged() {
+        let url = "https://api.example.test/items?page=2";
+        assert_eq!(redact_secret_query_parameters(url, &[]), url);
+        assert_eq!(redact_secret_query_parameters(url, &["api_key"]), url);
     }
 
     fn oauth_client(base_url: String, store: Arc<MemoryStore>, now: u64) -> Client {

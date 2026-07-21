@@ -105,8 +105,11 @@ fn init_scaffolds_a_compilable_route_only_project() {
 
     for path in [
         "Cargo.toml",
+        "README.md",
         "tokyo.toml",
-        "src/main.rs",
+        ".tokyo/src/main.rs",
+        ".tokyo/src/cli.rs",
+        ".tokyo/src/tokyo/routes.rs",
         "src/middleware.rs",
         "src/routes/mod.rs",
         "src/routes/index.rs",
@@ -134,7 +137,6 @@ fn init_scaffolds_a_compilable_route_only_project() {
     let checked = Command::new("cargo")
         .args([
             "check",
-            "--quiet",
             "--config",
             &format!(
                 "patch.crates-io.tokyo-cli-runtime.path={:?}",
@@ -145,6 +147,10 @@ fn init_scaffolds_a_compilable_route_only_project() {
         .output()
         .unwrap();
     assert!(checked.status.success(), "{checked:?}");
+    assert!(
+        !String::from_utf8_lossy(&checked.stderr).contains("warning:"),
+        "fresh projects must compile without warnings: {checked:?}"
+    );
 }
 
 fn run_in(directory: &Path, arguments: &[&str]) -> Output {
@@ -201,7 +207,7 @@ pub fn decorate(route: Route) -> Route {
 
     let generated = run_in(&project, &["generate"]);
     assert!(generated.status.success(), "{generated:?}");
-    let registry = fs::read_to_string(project.join("src/tokyo/routes.rs")).unwrap();
+    let registry = fs::read_to_string(project.join(".tokyo/src/tokyo/routes.rs")).unwrap();
     assert!(registry.contains("customers/list.rs"), "{registry}");
     assert!(registry.contains("\"customers\""), "{registry}");
     assert!(registry.contains("\"list\""), "{registry}");
@@ -318,7 +324,7 @@ fn init_preflights_all_paths_without_partial_writes() {
     );
     assert!(!project.join("Cargo.toml").exists());
     assert!(!project.join("tokyo.toml").exists());
-    assert!(!project.join("src/main.rs").exists());
+    assert!(!project.join(".tokyo").exists());
 }
 
 #[test]
@@ -340,7 +346,7 @@ fn project_config_can_supply_optional_openapi_paths() {
     ]);
     assert!(generated.status.success(), "{generated:?}");
     assert!(project.join("generated/Cargo.toml").is_file());
-    let cli = fs::read_to_string(project.join("generated/src/cli.rs")).unwrap();
+    let cli = fs::read_to_string(project.join("generated/.tokyo/src/cli.rs")).unwrap();
     assert!(cli.contains("#[command(name = \"pets\""), "{cli}");
 }
 
@@ -362,14 +368,14 @@ fn generates_only_a_standalone_cli() {
     ]);
     assert!(generated.status.success(), "{generated:?}");
     assert!(output.join("Cargo.toml").is_file());
-    assert!(output.join("src/main.rs").is_file());
-    assert!(output.join("src/cli.rs").is_file());
+    assert!(output.join(".tokyo/src/main.rs").is_file());
+    assert!(output.join(".tokyo/src/cli.rs").is_file());
     assert!(output.join("src/middleware.rs").is_file());
     assert!(output.join("src/commands/custom.rs").is_file());
     assert!(output.join(".tokyo/ir.json").is_file());
     assert!(!output.join("package.json").exists());
 
-    let cli = fs::read_to_string(output.join("src/cli.rs")).unwrap();
+    let cli = fs::read_to_string(output.join(".tokyo/src/cli.rs")).unwrap();
     assert!(cli.contains("#[command(name = \"pets\""), "{cli}");
 }
 
@@ -436,7 +442,10 @@ fn update_branch_commits_only_generated_source_changes() {
     assert!(stdout.contains("# Tokyo Generated CLI Update"), "{stdout}");
     assert!(stdout.contains("## API Changes"), "{stdout}");
     assert!(stdout.contains("endpoint"), "{stdout}");
-    assert!(stdout.contains("src/tokyo/commands/default.rs"), "{stdout}");
+    assert!(
+        stdout.contains(".tokyo/src/tokyo/commands/default.rs"),
+        "{stdout}"
+    );
     assert!(
         stdout.contains("No app-owned files were changed"),
         "{stdout}"
@@ -464,7 +473,7 @@ fn update_branch_commits_only_generated_source_changes() {
     let changed_paths = String::from_utf8_lossy(&diff.stdout);
     assert!(changed_paths.contains(".tokyo/ir.json"), "{changed_paths}");
     assert!(
-        changed_paths.contains("src/tokyo/commands/default.rs"),
+        changed_paths.contains(".tokyo/src/tokyo/commands/default.rs"),
         "{changed_paths}"
     );
     assert!(
@@ -481,10 +490,14 @@ fn route_extension_starters_are_user_owned() {
 
     let custom = output.join("src/commands/custom.rs");
     let middleware = output.join("src/middleware.rs");
+    let manifest_file = output.join("Cargo.toml");
+    let readme = output.join("README.md");
     let project_layout_skill = output.join(".cursor/skills/tokyo-project-layout/SKILL.md");
     let routes_skill = output.join(".cursor/skills/tokyo-filesystem-routes/SKILL.md");
     assert!(custom.is_file());
     assert!(middleware.is_file());
+    assert!(manifest_file.is_file());
+    assert!(readme.is_file());
     assert!(project_layout_skill.is_file());
     assert!(routes_skill.is_file());
 
@@ -510,15 +523,29 @@ fn route_extension_starters_are_user_owned() {
             .as_array()
             .unwrap()
             .iter()
+            .any(|path| path == "Cargo.toml" || path == "README.md")
+    );
+    assert!(
+        !manifest["files"]
+            .as_array()
+            .unwrap()
+            .iter()
             .any(|path| path == ".cursor/skills/tokyo-project-layout/SKILL.md")
     );
 
     let local_custom = "pub fn local_custom_marker() {}\n";
     let local_middleware = "pub fn local_middleware_marker() {}\n";
     let local_skill = "---\nname: tokyo-project-layout\ndescription: Local guidance.\n---\n";
+    let local_manifest = format!(
+        "{}\n# developer dependency marker\n",
+        fs::read_to_string(&manifest_file).unwrap()
+    );
+    let local_readme = "# Developer README\n";
     fs::write(&custom, local_custom).unwrap();
     fs::write(&middleware, local_middleware).unwrap();
     fs::write(&project_layout_skill, local_skill).unwrap();
+    fs::write(&manifest_file, &local_manifest).unwrap();
+    fs::write(&readme, local_readme).unwrap();
     fs::remove_file(&routes_skill).unwrap();
 
     assert!(generate(&fixture(), &output).status.success());
@@ -528,6 +555,8 @@ fn route_extension_starters_are_user_owned() {
         fs::read_to_string(&project_layout_skill).unwrap(),
         local_skill
     );
+    assert_eq!(fs::read_to_string(&manifest_file).unwrap(), local_manifest);
+    assert_eq!(fs::read_to_string(&readme).unwrap(), local_readme);
     assert!(
         routes_skill.is_file(),
         "missing starter skills should be restored"
@@ -571,7 +600,7 @@ fn check_detects_drift_without_mutating() {
     ]);
     assert!(clean.status.success(), "{clean:?}");
 
-    let main = output.join("src/main.rs");
+    let main = output.join(".tokyo/src/main.rs");
     fs::write(&main, "local edit\n").unwrap();
     let dirty = run(&[
         "check",
@@ -581,7 +610,7 @@ fn check_detects_drift_without_mutating() {
         output.to_str().unwrap(),
     ]);
     assert_eq!(dirty.status.code(), Some(1));
-    assert!(String::from_utf8_lossy(&dirty.stderr).contains("modified src/main.rs"));
+    assert!(String::from_utf8_lossy(&dirty.stderr).contains("modified .tokyo/src/main.rs"));
     assert_eq!(fs::read_to_string(main).unwrap(), "local edit\n");
 }
 
@@ -618,7 +647,7 @@ file = "scenarios/smoke.scenario"
         config.to_str().unwrap(),
     ]);
     assert!(generated.status.success(), "{generated:?}");
-    let runtime_config = fs::read_to_string(output.join("src/tokyo/config.rs")).unwrap();
+    let runtime_config = fs::read_to_string(output.join(".tokyo/src/tokyo/config.rs")).unwrap();
     assert!(runtime_config.contains(r#"name: "smoke""#));
     assert!(runtime_config.contains("pets list --limit @set:limit"));
 }
@@ -694,7 +723,7 @@ fn hand_edited_managed_file_fails_regeneration() {
     let output = temp.0.join("cli");
     assert!(generate(&fixture(), &output).status.success());
 
-    let managed = output.join("src/tokyo/config.rs");
+    let managed = output.join(".tokyo/src/tokyo/config.rs");
     let mut edited = fs::read_to_string(&managed).unwrap();
     edited.push_str("// hand edit\n");
     fs::write(&managed, edited).unwrap();
@@ -703,7 +732,7 @@ fn hand_edited_managed_file_fails_regeneration() {
     assert!(!rerun.status.success());
     let stderr = String::from_utf8_lossy(&rerun.stderr);
     assert!(stderr.contains("edited by hand"), "{stderr}");
-    assert!(stderr.contains("src/tokyo/config.rs"), "{stderr}");
+    assert!(stderr.contains(".tokyo/src/tokyo/config.rs"), "{stderr}");
     // The edit survives: nothing was overwritten.
     assert!(
         fs::read_to_string(&managed)
@@ -719,7 +748,7 @@ fn removed_managed_file_is_recreated_and_user_edits_are_ignored() {
     let output = temp.0.join("cli");
     assert!(generate(&fixture(), &output).status.success());
 
-    fs::remove_file(output.join("src/tokyo/config.rs")).unwrap();
+    fs::remove_file(output.join(".tokyo/src/tokyo/config.rs")).unwrap();
     fs::write(
         output.join("src/commands/custom.rs"),
         "pub fn edited_by_user() {}\n",
@@ -727,7 +756,7 @@ fn removed_managed_file_is_recreated_and_user_edits_are_ignored() {
     .unwrap();
 
     assert!(generate(&fixture(), &output).status.success());
-    assert!(output.join("src/tokyo/config.rs").is_file());
+    assert!(output.join(".tokyo/src/tokyo/config.rs").is_file());
     assert_eq!(
         fs::read_to_string(output.join("src/commands/custom.rs")).unwrap(),
         "pub fn edited_by_user() {}\n"
@@ -746,7 +775,10 @@ fn unchanged_managed_files_regenerate_without_hash_failures() {
     let hashes = manifest["hashes"]
         .as_object()
         .expect("manifest records hashes");
-    assert!(hashes.contains_key("src/tokyo/config.rs"), "{manifest}");
+    assert!(
+        hashes.contains_key(".tokyo/src/tokyo/config.rs"),
+        "{manifest}"
+    );
     assert!(
         !hashes.contains_key("src/commands/custom.rs"),
         "starter files must not be hash-tracked: {manifest}"
@@ -953,7 +985,6 @@ fn legacy_manifest_and_snapshot_migrate_to_tokyo_directory() {
     fs::write(output.join(".tokyo-manifest.json"), manifest_text).unwrap();
     fs::rename(output.join(".tokyo/ir.json"), output.join(".tokyo-ir.json")).unwrap();
     fs::remove_file(output.join(".tokyo/manifest.json")).unwrap();
-    fs::remove_dir(output.join(".tokyo")).unwrap();
     fs::write(output.join("src/commands/custom.rs"), "// user edit\n").unwrap();
 
     assert!(generate(&fixture(), &output).status.success());

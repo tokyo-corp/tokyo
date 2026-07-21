@@ -58,3 +58,7 @@ Middleware runs in registration order and may inspect context, wrap the next sta
 ## Register changes
 
 Run `tokyo generate` after route file changes, or keep `tokyo dev` running to regenerate and type-check automatically.
+
+When `tokyo dev` is running, execute `.tokyo/bin/<project-name>` directly to
+test routes. Do not repeatedly use `cargo run`; the stable binary always points
+at the latest successful build.

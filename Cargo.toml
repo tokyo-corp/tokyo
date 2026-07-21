@@ -10,7 +10,7 @@ members = [
 ]
 
 [workspace.package]
-version = "0.1.1"
+version = "0.1.2"
 edition = "2024"
 rust-version = "1.97"
 license = "MIT"
@@ -35,11 +35,11 @@ toml = "1.1.2"
 url = "2.5.8"
 yaml_serde = "0.10.4"
 
-tokyo-cli-runtime = { version = "0.1.1", path = "crates/cli-runtime" }
-tokyo-codegen-engine = { version = "0.1.1", path = "crates/codegen/codegen-engine" }
-tokyo-emit-cli = { version = "0.1.1", path = "crates/codegen/emit-cli" }
-tokyo-import-openapi = { version = "0.1.1", path = "crates/codegen/import-openapi" }
-tokyo-ir = { version = "0.1.1", path = "crates/codegen/ir" }
+tokyo-cli-runtime = { version = "0.1.2", path = "crates/cli-runtime" }
+tokyo-codegen-engine = { version = "0.1.2", path = "crates/codegen/codegen-engine" }
+tokyo-emit-cli = { version = "0.1.2", path = "crates/codegen/emit-cli" }
+tokyo-import-openapi = { version = "0.1.2", path = "crates/codegen/import-openapi" }
+tokyo-ir = { version = "0.1.2", path = "crates/codegen/ir" }
 
 [workspace.lints.rust]
 unsafe_code = "forbid"

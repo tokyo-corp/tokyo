@@ -6,6 +6,7 @@ use std::io::{Read as _, Write as _};
 use std::net::TcpListener;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -28,16 +29,36 @@ fn checked_in_golden_clis_compile_and_report_schema() {
     // so each fixture gets its own isolated --target-dir (below) to prevent
     // one fixture from reusing another's executable solely because their
     // package identities match. That isolation is also what makes it safe to
-    // run every fixture's nested cargo commands concurrently: they never
-    // touch each other's target directory.
+    // run fixtures' nested cargo commands concurrently: they never touch each
+    // other's target directory.
+    //
+    // Concurrency is capped at the core count rather than left unbounded:
+    // spawning all fixtures' cargo builds at once oversubscribes the CPU and
+    // can starve the timing-sensitive local capture-server threads a few
+    // fixtures use (see `serve_once`), causing spurious read timeouts under
+    // contention rather than real failures.
+    let workers = thread::available_parallelism()
+        .map(|n| n.get())
+        .unwrap_or(1)
+        .min(manifests.len());
+    let next = AtomicUsize::new(0);
     thread::scope(|scope| {
-        let handles: Vec<_> = manifests
-            .iter()
-            .map(|manifest| {
+        let handles: Vec<_> = (0..workers)
+            .map(|_| {
                 let cargo = &cargo;
                 let workspace = &workspace;
                 let target_dir = &target_dir;
-                scope.spawn(move || run_fixture(cargo, workspace, manifest, target_dir))
+                let manifests = &manifests;
+                let next = &next;
+                scope.spawn(move || {
+                    loop {
+                        let index = next.fetch_add(1, Ordering::Relaxed);
+                        let Some(manifest) = manifests.get(index) else {
+                            break;
+                        };
+                        run_fixture(cargo, workspace, manifest, target_dir);
+                    }
+                })
             })
             .collect();
         for handle in handles {
@@ -125,7 +146,9 @@ fn run_fixture(cargo: &OsString, workspace: &Path, manifest: &Path, target_dir: 
         assert_presentation_control(cargo, manifest, &fixture_target_dir);
     }
     match fixture {
-        "serialization" => assert_parameter_and_multipart_wire(cargo, manifest, &fixture_target_dir),
+        "serialization" => {
+            assert_parameter_and_multipart_wire(cargo, manifest, &fixture_target_dir)
+        }
         "openapi-coverage" => {
             assert_form_stream_and_binary_wire(cargo, manifest, &fixture_target_dir)
         }
@@ -812,7 +835,7 @@ fn serve_once(
             }
         };
         stream
-            .set_read_timeout(Some(Duration::from_secs(10)))
+            .set_read_timeout(Some(Duration::from_secs(30)))
             .expect("capture stream timeout should configure");
         let mut request = Vec::new();
         loop {

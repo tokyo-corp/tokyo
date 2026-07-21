@@ -1,0 +1,1799 @@
+//! Renders the top-level `src/cli.rs`: the global `Cli` struct, the
+//! resource-grouped `Command` enum (plus `api`/`auth`/`schema`/`completions`/
+//! `run`/`reset`), and the `run()`/`execute()` entry point.
+
+use proc_macro2::TokenStream;
+use quote::quote;
+
+use crate::naming::{self, rust_identifier};
+
+pub fn render_generated_cli_source_tokens(
+    resources: &[(syn::Ident, syn::Ident)],
+    resource_has_dispatch: &[bool],
+    tags: &[String],
+    product_name: &str,
+    schema_json: &str,
+) -> TokenStream {
+    let auth_command_types = super::auth::render_auth_command_types();
+    let env_prefix = product_name.to_uppercase().replace(['-', ' '], "_");
+    let base_url_env = format!("{env_prefix}_BASE_URL");
+    let token_env = format!("{env_prefix}_TOKEN");
+    let client_id_env = format!("{env_prefix}_CLIENT_ID");
+    let client_secret_env = format!("{env_prefix}_CLIENT_SECRET");
+    let credentials_env = format!("{env_prefix}_CREDENTIALS");
+    let credential_file_env = format!("{env_prefix}_CREDENTIAL_FILE");
+    let profile_env = format!("{env_prefix}_PROFILE");
+    let environment_env = format!("{env_prefix}_ENVIRONMENT");
+    let debug_env = format!("{env_prefix}_DEBUG");
+    let output_env = format!("{env_prefix}_OUTPUT_FORMAT");
+    let variants = resources.iter().map(|(module, enum_name)| {
+        let variant = resource_variant_rust_identifier(enum_name);
+        quote! {
+            #variant {
+                #[command(subcommand)]
+                command: crate::tokyo::commands::#module::#enum_name,
+            },
+        }
+    });
+    let arms =
+        resources
+            .iter()
+            .zip(resource_has_dispatch)
+            .map(|((module, enum_name), has_dispatch)| {
+                let variant = resource_variant_rust_identifier(enum_name);
+                if *has_dispatch {
+                    quote! {
+                    Command::#variant { command } => {
+                        let __identity = if crate::tokyo::commands::#module::requires_project_identity_from_token(command) {
+                            Some(crate::oauth::authenticated_caller_project_identity_from_token(
+                                store.as_ref(),
+                                &profile,
+                                cli.token.as_deref(),
+                            )?)
+                        } else {
+                            None
+                        };
+                        crate::tokyo::commands::#module::dispatch(
+                            command,
+                            &client,
+                            &output,
+                            __identity.as_ref(),
+                        )?
+                    },
+                    }
+                } else {
+                    quote! {
+                        Command::#variant { command } => {
+                            crate::tokyo::commands::#module::dispatch(command, &client, &output)?
+                        },
+                    }
+                }
+            });
+    // `reset` undoes whatever `created.jsonl` recorded, resource by resource,
+    // using each resource module's own `delete_by_id` (which returns `None`
+    // when that resource has no single-ID delete endpoint to call).
+    let reset_arms = resources.iter().zip(resource_has_dispatch).zip(tags).map(
+        |(((module, _), has_dispatch), tag)| {
+            let resource_name = naming::resource_display_name(tag);
+            let dispatch = if *has_dispatch {
+                quote! {
+                    crate::tokyo::commands::#module::dispatch(&variant, &client, &output, None)
+                }
+            } else {
+                quote! {
+                    crate::tokyo::commands::#module::dispatch(&variant, &client, &output)
+                }
+            };
+            quote! {
+                #resource_name => match crate::tokyo::commands::#module::delete_by_id(&id) {
+                    Some(variant) => {
+                        let _ = #dispatch;
+                        true
+                    }
+                    None => false,
+                },
+            }
+        },
+    );
+    quote! {
+        use std::io::IsTerminal as _;
+
+        #[derive(Debug, clap::Parser)]
+        #[command(
+            name = #product_name,
+            version,
+            about = "Generated API client"
+        )]
+        pub struct Cli {
+            /// Base URL for API requests. Not required for `schema`/`auth`,
+            /// which work with no configuration.
+            #[arg(long, env = #base_url_env, global = true)]
+            pub base_url: Option<String>,
+            /// Bearer token or API key credential.
+            #[arg(long, env = #token_env, global = true)]
+            pub token: Option<String>,
+            /// OAuth2 client-credentials client ID, for endpoints that support
+            /// minting their own token (no --token needed for those).
+            #[arg(long, env = #client_id_env, global = true)]
+            pub client_id: Option<String>,
+            /// OAuth2 client-credentials client secret.
+            #[arg(long, env = #client_secret_env, global = true)]
+            pub client_secret: Option<String>,
+            /// Named OpenAPI credential (`SCHEME=VALUE`). Repeat for multiple
+            /// schemes. Prefer the credentials env/file options for secrets.
+            #[arg(long = "credential", value_name = "SCHEME=VALUE", global = true)]
+            pub credentials: Vec<String>,
+            /// JSON object mapping OpenAPI scheme names to credential strings.
+            #[arg(long = "credentials-json", env = #credentials_env, global = true)]
+            pub credentials_json: Option<String>,
+            /// Read the same JSON object from a file.
+            #[arg(long, env = #credential_file_env, global = true)]
+            pub credential_file: Option<std::path::PathBuf>,
+            /// Output format; defaults to a table on a terminal, JSON when
+            /// piped. TTY detection isn't reliable in every automated
+            /// environment (some allocate a pty), so a script or agent that
+            /// needs JSON regardless should still pass this explicitly or
+            /// set the env var rather than rely on the pipe default.
+            #[arg(short = 'o', long = "output", value_enum, env = #output_env, global = true)]
+            pub output: Option<crate::output::OutputFormat>,
+            /// Comma-separated column selection, table output only.
+            #[arg(long, global = true)]
+            pub fields: Option<String>,
+            /// Never prompt (e.g. disables interactive `auth login`; use
+            /// `--token`/`--client-id`/`--client-secret` instead).
+            #[arg(long, global = true)]
+            pub no_input: bool,
+            /// Named connection and credential profile. An explicit connection
+            /// or credential flag always takes precedence over stored values.
+            #[arg(long, env = #profile_env, global = true)]
+            pub profile: Option<String>,
+            /// Named generated API environment. Overrides the active profile's
+            /// connection settings but not an explicit --base-url.
+            #[arg(long, env = #environment_env, global = true)]
+            pub environment: Option<String>,
+            /// Print method/path/outcome/timing for every request to stderr.
+            #[arg(long, env = #debug_env, global = true)]
+            pub debug: bool,
+            #[command(subcommand)]
+            pub command: Command,
+        }
+
+        /// Runtime services available to developer-owned custom commands.
+        pub struct CommandContext<'a> {
+            pub output: &'a crate::output::OutputOptions,
+            pub profile: &'a str,
+            client: &'a Result<crate::client::Client, crate::error::ClientError>,
+        }
+
+        impl CommandContext<'_> {
+            /// Returns the configured API client. Connection configuration is
+            /// resolved lazily so custom commands that never call the API run
+            /// without a base URL, environment, or profile.
+            pub fn client(&self) -> Result<&crate::client::Client, crate::error::ClientError> {
+                self.client.as_ref().map_err(Clone::clone)
+            }
+
+            /// Returns the configured API client when connection settings are available.
+            pub fn client_optional(&self) -> Option<&crate::client::Client> {
+                self.client.as_ref().ok()
+            }
+        }
+
+        #[derive(Debug, clap::Subcommand)]
+        pub enum Command {
+            /// Plan and execute a generated outcome, resolving request defaults
+            /// and repeating creates without a handwritten scenario.
+            Achieve {
+                /// Outcome verb. Currently `create`.
+                action: String,
+                /// Generated target from `--help` (for example `shipping-order`).
+                resource: String,
+                /// Number of resources to create.
+                #[arg(long, default_value_t = 1)]
+                count: usize,
+                /// Override an inferred request-body field.
+                #[arg(long = "set", value_name = "PATH=VALUE")]
+                set: Vec<String>,
+                /// Existing resource ID for non-create outcomes; repeat as needed.
+                #[arg(long = "id", value_name = "ID")]
+                id: Vec<String>,
+                /// Natural-language outcome details for builder-backed resources.
+                #[arg(long, value_name = "REQUEST")]
+                prompt: Option<String>,
+                /// After a validated create, execute the resource's generated
+                /// finalize outcome (submit/stage/publish/...).
+                #[arg(long)]
+                submit: bool,
+                /// Print the generated operation and request bodies without executing.
+                #[arg(long)]
+                dry_run: bool,
+            },
+            /// Escape hatch for any request this CLI doesn't have a dedicated
+            /// command for: same auth/retry machinery, no per-operation validation.
+            Api {
+                #[arg(value_enum)]
+                method: crate::client::Method,
+                path: String,
+                /// Read a JSON request body from a file, or stdin with `-`.
+                #[arg(long = "body", value_name = "FILE", group = "__api_body")]
+                body: Option<String>,
+                /// Supply the request body as inline JSON.
+                #[arg(long = "body-json", value_name = "JSON", group = "__api_body")]
+                body_json: Option<String>,
+                /// Set a request-body field as `path=value`; repeat for more fields.
+                #[arg(short = 'f', long = "field", value_name = "PATH=VALUE", group = "__api_body")]
+                body_fields: Vec<String>,
+            },
+            /// Manage stored credential profiles.
+            Auth {
+                #[command(subcommand)]
+                command: AuthCommand,
+            },
+            /// Manage non-secret connection profiles.
+            Profile {
+                #[command(subcommand)]
+                command: ProfileCommand,
+            },
+            /// Inspect named API environments generated from project config.
+            Env {
+                #[command(subcommand)]
+                command: EnvCommand,
+            },
+            /// Orient a fresh caller: authentication, connection, reachable
+            /// resources, available recipes, and the highest-value next calls.
+            Start,
+            /// Print this CLI's command/argument/output shape as JSON. Works
+            /// with no configuration, so callers can discover the CLI before
+            /// setup (auth, --base-url) is complete. With no flags, prints a
+            /// lightweight index of every resource/command name, method, and
+            /// path — no descriptions, cheap to load in full. Pass --command
+            /// to fetch one command's full detail (summary, description, and
+            /// every parameter's description) before ever calling it for real.
+            Schema {
+                /// A "<resource>.<command>" identifier from the index (e.g.
+                /// `orgs.get-org-members-v1`), or a globally unambiguous bare
+                /// command name or alias. Returns that command's full detail
+                /// instead of the index.
+                #[arg(long)]
+                command: Option<String>,
+                /// Return only normalized request/response JSON Schemas and
+                /// their transitive OpenAPI component dependencies.
+                #[arg(long, requires = "command")]
+                json_schema: bool,
+                /// Restrict the command index by authentication access.
+                #[arg(long, value_enum, conflicts_with_all = ["command", "json_schema"])]
+                access: Option<tokyo_cli_runtime::schema::CommandAccessFilter>,
+            },
+            /// Print a shell completion script.
+            Completions {
+                #[arg(value_enum)]
+                shell: clap_complete::Shell,
+            },
+            /// Run a named or explicit scenario file. Runtime scenarios are
+            /// discovered in .<command>/scenarios and the user config directory.
+            /// Scenarios support substitutions, repeat blocks, captures, and
+            /// structured final output. Stops at the first command that fails.
+            Run {
+                target: String,
+                /// Define a scenario value substituted for exact `@set:KEY`
+                /// arguments before `@last:` references are resolved.
+                #[arg(long = "set", value_name = "KEY=VALUE")]
+                set: Vec<String>,
+            },
+            /// Delete every resource this session's `created.jsonl` recorded
+            /// (most recent first), then clear the log. Best-effort: a
+            /// resource whose module has no single-ID delete endpoint is
+            /// reported as unresettable rather than failing the whole command.
+            Reset,
+            #(#variants)*
+        }
+
+        const SCHEMA_JSON: &str = #schema_json;
+
+        #auth_command_types
+
+        #[derive(Debug, clap::Subcommand)]
+        pub enum ProfileCommand {
+            /// List saved connection profiles.
+            List,
+            /// Show the active profile and its resolved connection.
+            Show,
+            /// Set the active profile to a custom URL or named environment.
+            Set {
+                #[arg(long, conflicts_with = "environment")]
+                base_url: Option<String>,
+                #[arg(long, conflicts_with = "base_url")]
+                environment: Option<String>,
+            },
+        }
+
+        #[derive(Debug, clap::Subcommand)]
+        pub enum EnvCommand {
+            /// List the named environments compiled into this CLI.
+            List,
+        }
+
+        fn mask_credential_token_for_display(token: &str) -> String {
+            let visible: String = token.chars().rev().take(4).collect::<Vec<_>>().into_iter().rev().collect();
+            format!("...{visible}")
+        }
+
+        fn resolve_requested_or_default_auth_scheme(explicit: &Option<String>) -> String {
+            explicit
+                .clone()
+                .or_else(|| crate::oauth::default_oauth_scheme_name().map(str::to_string))
+                .unwrap_or_else(|| "token".to_string())
+        }
+
+        fn global_cli_argument_or_environment_value(args: &[String], name: &str, env: &str) -> Option<String> {
+            args.iter()
+                .enumerate()
+                .find_map(|(index, arg)| {
+                    arg.strip_prefix(&format!("{name}="))
+                        .map(str::to_string)
+                        .or_else(|| (arg == name).then(|| args.get(index + 1).cloned()).flatten())
+                })
+                .or_else(|| std::env::var(env).ok())
+        }
+
+        fn resolve_auth_credential_value_for_scheme(
+            store: &dyn crate::profile::CredentialStore,
+            profile: &str,
+            explicit: Option<&str>,
+            scheme: &str,
+        ) -> Result<Option<String>, crate::error::ClientError> {
+            match explicit {
+                Some(token) => Ok(Some(token.to_string())),
+                None => store.get_credential_secret(profile, scheme),
+            }
+        }
+
+        fn entry_help_banner(
+            args: &[String],
+            store: &dyn crate::profile::CredentialStore,
+        ) -> String {
+            let profile = global_cli_argument_or_environment_value(args, "--profile", #profile_env)
+                .unwrap_or_else(|| "default".to_string());
+            let explicit_token = global_cli_argument_or_environment_value(args, "--token", #token_env);
+            let scheme = crate::oauth::default_oauth_scheme_name().unwrap_or("token");
+            let token = resolve_auth_credential_value_for_scheme(
+                store,
+                &profile,
+                explicit_token.as_deref(),
+                scheme,
+            );
+            let Some(token) = token.ok().flatten() else {
+                return format!("✗ Not authenticated — run `{} auth login` first.", #product_name);
+            };
+            let identity = match crate::oauth::project_identity_from_token(scheme, &token) {
+                Ok(identity) => identity.unwrap_or(serde_json::Value::Null),
+                Err(_) => {
+                    return format!(
+                        "✗ Not authenticated — credential rejected; run `{} auth login` first.",
+                        #product_name
+                    );
+                }
+            };
+            let base_url = global_cli_argument_or_environment_value(args, "--base-url", #base_url_env);
+            let selected_environment = global_cli_argument_or_environment_value(args, "--environment", #environment_env);
+            let environment = crate::profile::resolve_base_url(
+                &profile,
+                base_url.as_deref(),
+                selected_environment.as_deref(),
+            )
+                .ok()
+                .and_then(|resolved| crate::profile::environment_name_for_url(&resolved));
+            let relevant = tokyo_cli_runtime::schema::relevant_resources(
+                SCHEMA_JSON,
+                &identity,
+            )
+            .into_iter()
+            .collect::<std::collections::BTreeSet<_>>();
+            let capabilities = tokyo_cli_runtime::achieve::infer_achievable_capabilities_from_schema(SCHEMA_JSON)
+                .into_iter()
+                .filter(|capability| {
+                    capability
+                        .invocation
+                        .split_whitespace()
+                        .next()
+                        .is_some_and(|resource| relevant.contains(resource))
+                })
+                .map(|capability| {
+                    let arguments = if tokyo_cli_runtime::achieve::supports_prompt(
+                        SCHEMA_JSON,
+                        &capability,
+                    ) {
+                        "--count <N> --prompt <REQUEST> [--submit]"
+                    } else if capability.action == "create" {
+                        "--count <N>"
+                    } else {
+                        "--id <ID>"
+                    };
+                    format!(
+                        "  {} achieve {} {} {}\n    {}",
+                        #product_name,
+                        capability.action,
+                        capability.resource,
+                        arguments,
+                        capability.description,
+                    )
+                })
+                .collect::<Vec<_>>();
+            let catalog = if capabilities.is_empty() {
+                format!(
+                    "No automatic outcomes were inferred; use `{} schema` for direct operations.",
+                    #product_name
+                )
+            } else {
+                capabilities.join("\n")
+            };
+            format!(
+                "✓ Authenticated{}\n\nAGENT QUICKSTART\nPrefer `{} achieve` for user outcomes. It resolves request defaults and executes automatically.\nDo not inspect individual API commands unless `achieve` reports an unsupported goal.\nScripting: every command supports --output json and --no-input; errors are JSON on stderr with `retryable` and `hint`.\n\nAvailable outcomes:\n{catalog}",
+                environment
+                    .map(|name| format!(" ({name})"))
+                    .unwrap_or_default(),
+                #product_name,
+            )
+        }
+
+        fn print_entry_help_banner(args: &[String]) {
+            let banner = entry_help_banner(args, crate::profile::default_credential_store().as_ref());
+            match crate::commands::guidance::cli_guidance() {
+                Some(guidance) => println!("{banner}\n\nGUIDANCE\n{guidance}\n"),
+                None => println!("{banner}\n"),
+            }
+        }
+
+        fn inherited_global_cli_arguments(cli: &Cli) -> Vec<String> {
+            let program = std::env::args().next().unwrap_or_else(|| #product_name.to_string());
+            let mut args = vec![program];
+            for (name, value) in [
+                ("--base-url", cli.base_url.as_deref()),
+                ("--token", cli.token.as_deref()),
+                ("--client-id", cli.client_id.as_deref()),
+                ("--client-secret", cli.client_secret.as_deref()),
+                ("--credentials-json", cli.credentials_json.as_deref()),
+                ("--profile", cli.profile.as_deref()),
+                ("--environment", cli.environment.as_deref()),
+            ] {
+                if let Some(value) = value {
+                    args.extend([name.to_string(), value.to_string()]);
+                }
+            }
+            for credential in &cli.credentials {
+                args.extend(["--credential".to_string(), credential.clone()]);
+            }
+            if let Some(value) = &cli.credential_file {
+                args.extend([
+                    "--credential-file".to_string(),
+                    value.display().to_string(),
+                ]);
+            }
+            if cli.no_input {
+                args.push("--no-input".to_string());
+            }
+            if cli.debug {
+                args.push("--debug".to_string());
+            }
+            args
+        }
+
+        pub fn run() -> std::process::ExitCode {
+            let mut args = crate::session::resolve_last_response_references_in_cli_arguments(
+                std::env::args().collect(),
+            );
+            if args.iter().skip(1).any(|arg| arg == "--help" || arg == "-h") {
+                print_entry_help_banner(&args);
+            }
+            if args.len() == 1 {
+                args.push("start".to_string());
+            }
+
+            let generated_command = <Cli as clap::CommandFactory>::command();
+            let generated_subcommands = generated_command
+                .get_subcommands()
+                .flat_map(|command| {
+                    std::iter::once(command.get_name()).chain(command.get_all_aliases())
+                })
+                .map(str::to_string)
+                .collect::<std::collections::BTreeSet<_>>();
+            let command = crate::presentation::present(
+                crate::commands::custom::augment(
+                    crate::tokyo::routes::augment(generated_command),
+                ),
+            );
+            let mut matches = match command.try_get_matches_from(args) {
+                Ok(matches) => matches,
+                Err(error) => error.exit(),
+            };
+
+            let custom_subcommand = matches
+                .subcommand_name()
+                .filter(|name| !generated_subcommands.contains(*name))
+                .map(str::to_string);
+            if let Some(custom_subcommand) = custom_subcommand {
+                return match execute_custom_command(&matches) {
+                    Ok(true) => std::process::ExitCode::SUCCESS,
+                    Ok(false) => clap::Error::raw(
+                        clap::error::ErrorKind::InvalidSubcommand,
+                        format!("custom subcommand '{custom_subcommand}' was not handled"),
+                    )
+                    .exit(),
+                    Err(error) => {
+                        error.report();
+                        std::process::ExitCode::from(error.exit_code())
+                    }
+                };
+            }
+
+            let cli = match <Cli as clap::FromArgMatches>::from_arg_matches_mut(&mut matches) {
+                Ok(cli) => cli,
+                Err(error) => error.exit(),
+            };
+            match execute_parsed_cli_command(&cli) {
+                Ok(()) => std::process::ExitCode::SUCCESS,
+                Err(error) => {
+                    error.report();
+                    std::process::ExitCode::from(error.exit_code())
+                }
+            }
+        }
+
+        fn execute_custom_command(
+            matches: &clap::ArgMatches,
+        ) -> Result<bool, crate::error::ClientError> {
+            let profile = matches
+                .get_one::<String>("profile")
+                .cloned()
+                .unwrap_or_else(|| "default".to_string());
+            let output = crate::output::OutputOptions::resolve_requested_output_options(
+                matches.get_one::<crate::output::OutputFormat>("output").copied(),
+                matches.get_one::<String>("fields").cloned(),
+            );
+            let client = build_custom_command_api_client(matches, &profile);
+            let context = CommandContext {
+                output: &output,
+                profile: &profile,
+                client: &client,
+            };
+            if crate::tokyo::routes::dispatch(matches, &context)? {
+                Ok(true)
+            } else {
+                crate::commands::custom::dispatch(matches, &context)
+            }
+        }
+
+        fn build_custom_command_api_client(
+            matches: &clap::ArgMatches,
+            profile: &str,
+        ) -> Result<crate::client::Client, crate::error::ClientError> {
+            let store = crate::profile::default_credential_store();
+            let base_url = crate::profile::resolve_base_url(
+                profile,
+                matches.get_one::<String>("base_url").map(String::as_str),
+                matches.get_one::<String>("environment").map(String::as_str),
+            )?;
+            let token = match matches.get_one::<String>("token") {
+                Some(token) => Some(token.clone()),
+                None => match crate::oauth::default_oauth_scheme_name() {
+                    Some(scheme) => store.get_credential_secret(profile, scheme)?,
+                    None => crate::profile::load_legacy_token_credential(store.as_ref(), profile)?,
+                },
+            };
+            let credentials = matches
+                .get_many::<String>("credentials")
+                .map(|values| values.cloned().collect::<Vec<_>>())
+                .unwrap_or_default();
+            let credentials = crate::client::load_named_credentials_from_cli_inputs(
+                &credentials,
+                matches.get_one::<std::path::PathBuf>("credential_file").map(std::path::PathBuf::as_path),
+                matches.get_one::<String>("credentials_json").map(String::as_str),
+            )?;
+            Ok(crate::client::Client::new(
+                base_url,
+                token,
+                matches.get_one::<String>("client_id").cloned(),
+                matches.get_one::<String>("client_secret").cloned(),
+                credentials,
+                profile.to_string(),
+                store,
+                matches.get_flag("debug"),
+            ))
+        }
+
+        fn execute_parsed_cli_command(cli: &Cli) -> Result<(), crate::error::ClientError> {
+            let profile = cli.profile.clone().unwrap_or_else(|| "default".to_string());
+            let output = crate::output::OutputOptions::resolve_requested_output_options(cli.output, cli.fields.clone());
+            let store = crate::profile::default_credential_store();
+            {
+                if let Command::Schema { command, json_schema, access } = &cli.command {
+                    let mut view = if *json_schema {
+                        tokyo_cli_runtime::schema::render_json_schema(
+                            SCHEMA_JSON,
+                            command.as_deref().expect("clap requires --command"),
+                        )?
+                    } else if let Some(access) = access {
+                        tokyo_cli_runtime::schema::render_cli_schema_index_for_access(
+                            SCHEMA_JSON,
+                            *access,
+                        )
+                    } else {
+                        tokyo_cli_runtime::schema::render_cli_schema_json_response(SCHEMA_JSON, command.as_deref())?
+                    };
+                    if let Some(note) = view
+                        .get("command")
+                        .and_then(serde_json::Value::as_str)
+                        .and_then(|id| {
+                            crate::commands::guidance::command_guidance()
+                                .iter()
+                                .find(|(command, _)| *command == id)
+                                .map(|(_, note)| *note)
+                        })
+                    {
+                        view.as_object_mut()
+                            .expect("schema views are objects")
+                            .insert(
+                                "guidance".to_string(),
+                                serde_json::Value::String(note.to_string()),
+                            );
+                    }
+                    view.as_object_mut()
+                        .expect("schema views are objects")
+                        .insert(
+                            "routes".to_string(),
+                            crate::tokyo::routes::metadata(),
+                        );
+                    println!("{}", serde_json::to_string_pretty(&view).expect("schema view always serializes"));
+                    return Ok(());
+                }
+                if let Command::Achieve {
+                    action,
+                    resource,
+                    count,
+                    set,
+                    id,
+                    prompt,
+                    submit,
+                    dry_run,
+                } = &cli.command
+                {
+                    if action.eq_ignore_ascii_case("create") && (*count == 0 || *count > 1000) {
+                        return Err(crate::error::ClientError::Decode(
+                            "--count must be between 1 and 1000".to_string(),
+                        ));
+                    }
+                    let action = action.to_ascii_lowercase();
+                    let capability = tokyo_cli_runtime::achieve::find_capability(
+                        SCHEMA_JSON,
+                        &action,
+                        resource,
+                    )?;
+                    if *submit && capability.action != "create" {
+                        return Err(crate::error::ClientError::Decode(
+                            "--submit is only valid with create outcomes".to_string(),
+                        ));
+                    }
+                    let targets = if capability.action == "create" {
+                        vec![None; *count]
+                    } else {
+                        if id.is_empty() {
+                            return Err(crate::error::ClientError::Decode(format!(
+                                "{} {} requires at least one --id",
+                                capability.action, capability.resource,
+                            )));
+                        }
+                        id.iter().map(|value| Some(value.as_str())).collect::<Vec<_>>()
+                    };
+                    let base_args = inherited_global_cli_arguments(cli);
+                    let wanted = tokyo_cli_runtime::achieve::relationship_fields(
+                        SCHEMA_JSON,
+                        &capability,
+                    );
+                    let mut context = std::collections::BTreeMap::new();
+                    let mut lookup_resources = std::collections::BTreeSet::new();
+                    if !wanted.is_empty() {
+                        let scheme = crate::oauth::default_oauth_scheme_name().unwrap_or("token");
+                        let credential = resolve_auth_credential_value_for_scheme(
+                            store.as_ref(),
+                            &profile,
+                            cli.token.as_deref(),
+                            scheme,
+                        )?;
+                        if let Some(credential) = credential
+                            && let Some(identity) = crate::oauth::project_identity_from_token(scheme, &credential)?
+                        {
+                            lookup_resources.extend(
+                                tokyo_cli_runtime::schema::relevant_resources(
+                                    SCHEMA_JSON,
+                                    &identity,
+                                ),
+                            );
+                            tokyo_cli_runtime::achieve::collect_context(
+                                &identity,
+                                &wanted,
+                                &mut context,
+                            );
+                        }
+                        let mut lookup_attempts = 0usize;
+                        for lookup in tokyo_cli_runtime::achieve::relationship_lookups(
+                            SCHEMA_JSON,
+                            &capability,
+                        ) {
+                            if !lookup_resources.is_empty()
+                                && !lookup
+                                    .split_whitespace()
+                                    .next()
+                                    .is_some_and(|resource| lookup_resources.contains(resource))
+                            {
+                                continue;
+                            }
+                            if lookup_attempts == 10 {
+                                break;
+                            }
+                            lookup_attempts += 1;
+                            if cli.debug {
+                                eprintln!("[achieve:lookup] {lookup}");
+                            }
+                            let mut argv = base_args.clone();
+                            argv.extend(lookup.split_whitespace().map(str::to_string));
+                            let Ok(nested) = <Cli as clap::Parser>::try_parse_from(argv) else {
+                                continue;
+                            };
+                            crate::output::begin_capturing_command_output_for_scenario();
+                            let result = execute_parsed_cli_command(&nested);
+                            let captured = crate::output::end_capturing_command_output_for_scenario();
+                            if result.is_err() {
+                                continue;
+                            }
+                            if let Some(value) = captured.last() {
+                                tokyo_cli_runtime::achieve::collect_lookup_context(
+                                    value,
+                                    &wanted,
+                                    &lookup,
+                                    &mut context,
+                                );
+                            }
+                            if tokyo_cli_runtime::achieve::context_complete(
+                                SCHEMA_JSON,
+                                &capability,
+                                &context,
+                            ) {
+                                break;
+                            }
+                        }
+                        if cli.debug {
+                            eprintln!(
+                                "[achieve:context] wanted={wanted:?} resolved={:?}",
+                                context.keys().collect::<Vec<_>>()
+                            );
+                        }
+                    }
+                    let mut results = Vec::with_capacity(targets.len());
+                    let mut created = std::collections::BTreeMap::new();
+                    let mut submitted = Vec::new();
+                    let total = targets.len();
+                    for (offset, target_id) in targets.into_iter().enumerate() {
+                        let index = offset + 1;
+                        let body = tokyo_cli_runtime::achieve::synthesize_achieve_request_body(
+                            SCHEMA_JSON,
+                            &capability,
+                            index,
+                            set,
+                            &context,
+                            prompt.as_deref(),
+                        )?;
+                        if *dry_run {
+                            results.push(serde_json::json!({
+                                "index": index,
+                                "operation": capability.invocation,
+                                "id": target_id,
+                                "body": body,
+                                "submit": submit,
+                            }));
+                            continue;
+                        }
+                        let mut argv = base_args.clone();
+                        argv.extend(
+                            capability
+                                .invocation
+                                .split_whitespace()
+                                .map(str::to_string),
+                        );
+                        if let Some(target_id) = target_id {
+                            argv.push(target_id.to_string());
+                        }
+                        if let Some(body) = body {
+                            argv.extend(tokyo_cli_runtime::achieve::body_invocation_arguments(
+                                SCHEMA_JSON,
+                                &capability,
+                                &body,
+                            ));
+                        }
+                        eprintln!(
+                            "[achieve:{index}/{total}] {}",
+                            capability.invocation
+                        );
+                        let nested = <Cli as clap::Parser>::try_parse_from(argv)
+                            .map_err(|error| crate::error::ClientError::Decode(error.to_string()))?;
+                        crate::output::begin_capturing_command_output_for_scenario();
+                        let result = execute_parsed_cli_command(&nested);
+                        let captured = crate::output::end_capturing_command_output_for_scenario();
+                        result?;
+                        let value = captured.last().cloned().unwrap_or(serde_json::Value::Null);
+                        if value
+                            .get("validation_passed")
+                            .and_then(serde_json::Value::as_bool)
+                            == Some(false)
+                        {
+                            return Err(crate::error::ClientError::Decode(format!(
+                                "generated {} did not pass validation: {}",
+                                capability.resource,
+                                value
+                                    .get("validation_issues")
+                                    .cloned()
+                                    .unwrap_or(serde_json::Value::Null),
+                            )));
+                        }
+                        tokyo_cli_runtime::achieve::collect_resource_identifiers_from_value(
+                            &value,
+                            &capability.resource,
+                            &mut created,
+                        );
+                        if *submit {
+                            let created_id = tokyo_cli_runtime::achieve::extract_created_resource_identifier(
+                                &value,
+                                &capability.resource,
+                            )
+                            .ok_or_else(|| {
+                                crate::error::ClientError::Decode(format!(
+                                    "{} did not return an identifier required by --submit",
+                                    capability.invocation,
+                                ))
+                            })?;
+                            let stage = tokyo_cli_runtime::achieve::finalize_capability(
+                                SCHEMA_JSON,
+                                &capability.resource,
+                            )?;
+                            let mut argv = base_args.clone();
+                            argv.extend(
+                                stage.invocation.split_whitespace().map(str::to_string),
+                            );
+                            argv.push(created_id.clone());
+                            eprintln!("[achieve:submit] {}", stage.invocation);
+                            let nested = <Cli as clap::Parser>::try_parse_from(argv)
+                                .map_err(|error| crate::error::ClientError::Decode(error.to_string()))?;
+                            crate::output::begin_capturing_command_output_for_scenario();
+                            let result = execute_parsed_cli_command(&nested);
+                            let captured = crate::output::end_capturing_command_output_for_scenario();
+                            result?;
+                            submitted.push(serde_json::json!({
+                                "id": created_id,
+                                "result": captured.last().cloned().unwrap_or(serde_json::Value::Null),
+                            }));
+                        }
+                        results.push(value);
+                    }
+                    crate::output::print_serialized_response(
+                        &serde_json::json!({
+                            "goal": format!("{} {}", capability.action, capability.resource),
+                            "count": total,
+                            "operation": capability.invocation,
+                            "created": created,
+                            "submitted": submitted,
+                            "executed": !*dry_run,
+                            "results": results,
+                        }),
+                        &output,
+                    );
+                    return Ok(());
+                }
+                if let Command::Completions { shell } = &cli.command {
+                    let mut command = <Cli as clap::CommandFactory>::command();
+                    let name = command.get_name().to_string();
+                    clap_complete::generate(*shell, &mut command, name, &mut std::io::stdout());
+                    return Ok(());
+                }
+                if matches!(&cli.command, Command::Start) {
+                    let auth_schemes = tokyo_cli_runtime::schema::schema_auth_scheme_names(SCHEMA_JSON);
+                    let scheme = crate::oauth::default_oauth_scheme_name()
+                        .or_else(|| auth_schemes.first().map(String::as_str))
+                        .unwrap_or("token");
+                    let mut identity_scheme = scheme.to_string();
+                    let token = match &cli.token {
+                        Some(token) => Some(token.clone()),
+                        None => {
+                            let mut stored = None;
+                            for candidate in &auth_schemes {
+                                if let Some(value) = store.get_credential_secret(&profile, candidate)? {
+                                    identity_scheme = candidate.clone();
+                                    stored = Some(value);
+                                    break;
+                                }
+                            }
+                            stored
+                        }
+                    };
+                    let identity = match token.as_deref() {
+                        Some(token) => crate::oauth::project_identity_from_token(&identity_scheme, token)?
+                            .unwrap_or(serde_json::Value::Null),
+                        None => serde_json::Value::Null,
+                    };
+                    let named_credentials = crate::client::load_named_credentials_from_cli_inputs(
+                        &cli.credentials,
+                        cli.credential_file.as_deref(),
+                        cli.credentials_json.as_deref(),
+                    )?;
+                    let authenticated = token.is_some()
+                        || !named_credentials.is_empty()
+                        || (cli.client_id.is_some() && cli.client_secret.is_some());
+                    let access_inventory = tokyo_cli_runtime::schema::command_access_inventory(SCHEMA_JSON);
+                    let public_commands = access_inventory["public"]
+                        .as_array()
+                        .cloned()
+                        .unwrap_or_default();
+                    let optional_commands = access_inventory["optional"]
+                        .as_array()
+                        .cloned()
+                        .unwrap_or_default();
+                    let authenticated_commands = access_inventory["authenticated"]
+                        .as_array()
+                        .cloned()
+                        .unwrap_or_default();
+                    let mut available_now = public_commands.clone();
+                    available_now.extend(optional_commands.clone());
+                    if authenticated {
+                        available_now.extend(authenticated_commands.clone());
+                    }
+                    let authentication_required = if authenticated {
+                        Vec::new()
+                    } else {
+                        authenticated_commands.clone()
+                    };
+                    let base_url = crate::profile::resolve_base_url(
+                        &profile,
+                        cli.base_url.as_deref(),
+                        cli.environment.as_deref(),
+                    )
+                    .ok();
+                    let environment_name = match cli.base_url.as_deref() {
+                        Some(url) => {
+                            crate::profile::environment_name_for_url(url).map(str::to_string)
+                        }
+                        None => crate::profile::active_environment_name(
+                            &profile,
+                            cli.environment.as_deref(),
+                        )?,
+                    };
+                    let environment = match (environment_name, base_url) {
+                        (Some(name), Some(url)) => Some(format!("{name} ({url})")),
+                        (None, Some(url)) => Some(url),
+                        (Some(name), None) => Some(name),
+                        (None, None) => None,
+                    };
+                    let mut relevant_resources = if authenticated {
+                        tokyo_cli_runtime::schema::relevant_resources(
+                            SCHEMA_JSON,
+                            &identity,
+                        ).into_iter().collect::<std::collections::BTreeSet<_>>()
+                    } else {
+                        available_now
+                            .iter()
+                            .filter_map(serde_json::Value::as_str)
+                            .filter_map(|command| command.split_once('.').map(|(resource, _)| resource.to_string()))
+                            .collect::<std::collections::BTreeSet<_>>()
+                    };
+                    let file_scenarios = tokyo_cli_runtime::scenario::discover_scenario_files();
+                    let mut scenario_resources = std::collections::BTreeSet::new();
+                    let mut scenario_usages = std::collections::BTreeMap::new();
+                    for scenario in tokyo_cli_runtime::config::configured_cli_scenarios() {
+                        if authenticated {
+                            scenario_resources.extend(
+                                tokyo_cli_runtime::scenario::extract_resource_names_referenced_by_scenario(scenario.body),
+                            );
+                        }
+                        scenario_usages.insert(
+                            scenario.name.to_string(),
+                            (
+                                tokyo_cli_runtime::scenario::extract_scenario_usage_hint(scenario.body),
+                                tokyo_cli_runtime::scenario::scenario_is_marked_featured(scenario.body),
+                            ),
+                        );
+                    }
+                    for scenario in file_scenarios {
+                        if authenticated {
+                            scenario_resources.extend(
+                                tokyo_cli_runtime::scenario::extract_resource_names_referenced_by_scenario(&scenario.body),
+                            );
+                        }
+                        scenario_usages.insert(
+                            scenario.name,
+                            (scenario.usage, scenario.featured),
+                        );
+                    }
+                    if authenticated && !scenario_resources.is_empty() {
+                        relevant_resources = scenario_resources;
+                    }
+                    let scenarios = scenario_usages.keys().cloned().collect::<Vec<_>>();
+                    let capabilities = tokyo_cli_runtime::achieve::infer_achievable_capabilities_from_schema(SCHEMA_JSON)
+                        .into_iter()
+                        .filter(|capability| {
+                            capability
+                                .invocation
+                                .split_whitespace()
+                                .next()
+                                .is_some_and(|resource| relevant_resources.contains(resource))
+                        })
+                        .collect::<Vec<_>>();
+                    let next_steps = if authenticated {
+                        let featured_scenario_steps = scenario_usages
+                            .iter()
+                            .filter(|(_, (_, featured))| *featured)
+                            .take(3)
+                            .map(|(name, _)| format!("{} run {}", #product_name, name))
+                            .collect::<Vec<_>>();
+                        featured_scenario_steps
+                            .into_iter()
+                            .chain(capabilities.first().map(|capability| {
+                                let arguments = if tokyo_cli_runtime::achieve::supports_prompt(
+                                    SCHEMA_JSON,
+                                    capability,
+                                ) {
+                                    "--count <N> --prompt <REQUEST> [--submit]"
+                                } else if capability.action == "create" {
+                                    "--count <N>"
+                                } else {
+                                    "--id <ID>"
+                                };
+                                format!(
+                                    "{} achieve {} {} {}",
+                                    #product_name,
+                                    capability.action,
+                                    capability.resource,
+                                    arguments,
+                                )
+                            }))
+                            .chain([
+                                format!("{0} schema --command <resource>.<name>", #product_name),
+                                format!("{0} run list", #product_name),
+                            ])
+                            .collect::<Vec<_>>()
+                    } else {
+                        let mut steps = Vec::new();
+                        if !authenticated_commands.is_empty() {
+                            steps.push(
+                                tokyo_cli_runtime::schema::schema_login_hint_for_auth_commands(SCHEMA_JSON)
+                                    .unwrap_or_else(|| format!("{0} auth login", #product_name)),
+                            );
+                        }
+                        if let Some(command) = available_now.first().and_then(serde_json::Value::as_str) {
+                            steps.push(format!("{} {}", #product_name, command.replace('.', " ")));
+                        }
+                        steps.extend([
+                            format!("{0} schema --access public", #product_name),
+                            format!("{0} env list", #product_name),
+                        ]);
+                        steps
+                    };
+                    crate::output::print_serialized_response(
+                        &serde_json::json!({
+                            "authenticated": authenticated,
+                            "available_now": available_now,
+                            "authentication_optional": optional_commands,
+                            "authentication_required": authentication_required,
+                            "org_type": identity.get("org_type"),
+                            "org_role": identity.get("org_role"),
+                            "environment": environment,
+                            "relevant_resources": relevant_resources.into_iter().collect::<Vec<_>>(),
+                            "capabilities": capabilities,
+                            "scenarios": scenarios,
+                            "routes": crate::tokyo::routes::metadata(),
+                            "guidance": crate::commands::guidance::cli_guidance(),
+                            "scripting": format!(
+                                "Every command supports --output json and --no-input; structured request bodies accept JSON on stdin via --body -. Failures exit nonzero with {{\"error\": {{..., \"retryable\", \"hint\"}}}} on stderr. See `{} schema --command <ID>` for per-command forms.",
+                                #product_name,
+                            ),
+                            "next_steps": next_steps,
+                        }),
+                        &output,
+                    );
+                    return Ok(());
+                }
+                if let Command::Run { target, set } = &cli.command {
+                    let file_scenarios = tokyo_cli_runtime::scenario::discover_scenario_files();
+                    if target == "list" {
+                        let mut scenarios = std::collections::BTreeMap::new();
+                        for scenario in tokyo_cli_runtime::config::configured_cli_scenarios() {
+                            scenarios.insert(scenario.name, serde_json::json!({
+                                "name": scenario.name,
+                                "description": scenario.description,
+                                "allowed_environments": scenario.allowed_environments,
+                                "usage": tokyo_cli_runtime::scenario::extract_scenario_usage_hint(scenario.body),
+                                "featured": tokyo_cli_runtime::scenario::scenario_is_marked_featured(scenario.body),
+                                "source": "embedded",
+                            }));
+                        }
+                        for scenario in &file_scenarios {
+                            scenarios.insert(scenario.name.as_str(), serde_json::json!({
+                                "name": scenario.name,
+                                "description": scenario.description,
+                                "allowed_environments": scenario.allowed_environments,
+                                "usage": scenario.usage,
+                                "featured": scenario.featured,
+                                "source": scenario.path,
+                            }));
+                        }
+                        crate::output::print_serialized_response(
+                            &serde_json::Value::Array(scenarios.into_values().collect()),
+                            &output,
+                        );
+                        return Ok(());
+                    }
+                    let file_scenario = file_scenarios
+                        .iter()
+                        .find(|scenario| scenario.name == *target);
+                    let embedded = tokyo_cli_runtime::config::configured_cli_scenarios()
+                        .iter()
+                        .find(|scenario| scenario.name == target);
+                    let explicit_file = if file_scenario.is_none()
+                        && embedded.is_none()
+                        && std::path::Path::new(target).is_file()
+                    {
+                        Some(tokyo_cli_runtime::scenario::load_scenario_file_from_path(
+                            std::path::Path::new(target),
+                        )?)
+                    } else {
+                        None
+                    };
+                    let allowed_environments = file_scenario
+                        .map(|scenario| {
+                            scenario
+                                .allowed_environments
+                                .iter()
+                                .map(String::as_str)
+                                .collect::<Vec<_>>()
+                        })
+                        .or_else(|| {
+                            explicit_file.as_ref().map(|scenario| {
+                                scenario
+                                    .allowed_environments
+                                    .iter()
+                                    .map(String::as_str)
+                                    .collect::<Vec<_>>()
+                            })
+                        })
+                        .or_else(|| {
+                            embedded.map(|scenario| {
+                                scenario.allowed_environments.to_vec()
+                            })
+                        });
+                    if let Some(allowed_environments) = allowed_environments {
+                        if !allowed_environments.is_empty() {
+                            let environment = if cli.base_url.is_some() {
+                                None
+                            } else {
+                                crate::profile::active_environment_name(
+                                    &profile,
+                                    cli.environment.as_deref(),
+                                )?
+                            };
+                            if !environment
+                                .as_deref()
+                                .is_some_and(|name| allowed_environments.contains(&name))
+                            {
+                                return Err(crate::error::ClientError::MissingConfig(
+                                    "an allowed named environment for this scenario",
+                                ));
+                            }
+                        }
+                    }
+                    let mut set_values = std::collections::BTreeMap::new();
+                    for entry in set {
+                        let (key, value) = entry.split_once('=').ok_or_else(|| {
+                            crate::error::ClientError::Decode(format!(
+                                "--set {entry:?} must be KEY=VALUE"
+                            ))
+                        })?;
+                        if key.is_empty() {
+                            return Err(crate::error::ClientError::Decode(
+                                "--set key must not be empty".to_string(),
+                            ));
+                        }
+                        set_values.insert(key.to_string(), value.to_string());
+                    }
+                    // Global connection/auth flags aren't repeated on every
+                    // scenario line, so whatever the outer `run` invocation
+                    // was given (flag or env) has to be threaded into each
+                    // line's own argv — clap only re-reads env vars, not the
+                    // already-parsed struct.
+                    let base_args = inherited_global_cli_arguments(cli);
+                    let text = file_scenario
+                        .map(|scenario| scenario.body.as_str())
+                        .or_else(|| explicit_file.as_ref().map(|scenario| scenario.body.as_str()))
+                        .or_else(|| embedded.map(|scenario| scenario.body))
+                        .ok_or_else(|| {
+                            crate::error::ClientError::Transport(format!(
+                                "scenario {target:?} was not found by name or path"
+                            ))
+                        })?;
+                    let self_identity = if text.contains("@self:") {
+                        crate::oauth::authenticated_caller_project_identity_from_token(
+                            store.as_ref(),
+                            &profile,
+                            cli.token.as_deref(),
+                        )?
+                    } else {
+                        serde_json::Value::Null
+                    };
+                    let scenario = tokyo_cli_runtime::scenario::Program::parse_scenario_program(text)
+                        .map_err(|error| crate::error::ClientError::Decode(error.to_string()))?;
+                    let mut command_error = None;
+                    let summary = scenario.execute(&set_values, |line_number, line| {
+                            eprintln!("[run:{line_number}] {line}");
+                            let mut argv = base_args.clone();
+                            argv.extend(
+                                crate::session::split_scenario_file_line_into_cli_arguments(line),
+                            );
+                            let argv =
+                                crate::session::resolve_scenario_set_variable_references_in_cli_arguments(
+                                    argv,
+                                    &set_values,
+                                );
+                            let argv =
+                                crate::session::resolve_authenticated_identity_references_in_cli_arguments(
+                                    argv,
+                                    &self_identity,
+                                );
+                            let argv =
+                                crate::session::resolve_last_response_references_in_cli_arguments(argv);
+                            let line_cli = <Cli as clap::Parser>::try_parse_from(argv)
+                                .map_err(|error| error.to_string())?;
+                            crate::output::begin_capturing_command_output_for_scenario();
+                            let result = execute_parsed_cli_command(&line_cli);
+                            let captured = crate::output::end_capturing_command_output_for_scenario();
+                            if let Err(error) = result {
+                                let message = error.to_string();
+                                command_error = Some(error);
+                                return Err(message);
+                            }
+                            Ok(captured.last().cloned())
+                        });
+                    if let Some(error) = command_error {
+                        return Err(error);
+                    }
+                    let summary = summary
+                        .map_err(|error| crate::error::ClientError::Decode(error.to_string()))?;
+                    crate::output::print_serialized_response(&summary, &output);
+                    return Ok(());
+                }
+                if let Command::Auth { command } = &cli.command {
+                    match command {
+                        AuthCommand::Doctor { scheme } => {
+                            let scheme = resolve_requested_or_default_auth_scheme(scheme);
+                            let report = crate::oauth::run_oauth_provider_doctor(&scheme)?;
+                            let healthy = report.healthy;
+                            crate::output::print_serialized_response(
+                                &serde_json::to_value(&report)
+                                    .expect("OAuth doctor report always serializes"),
+                                &output,
+                            );
+                            if !healthy {
+                                return Err(crate::error::ClientError::UnsupportedAuth(
+                                    format!(
+                                        "OAuth diagnostics failed for security scheme {scheme:?}"
+                                    ),
+                                ));
+                            }
+                        }
+                        AuthCommand::Ensure {
+                            scheme,
+                            interaction,
+                            device,
+                        } => {
+                            let scheme = resolve_requested_or_default_auth_scheme(scheme);
+                            let existing_credential = match resolve_auth_credential_value_for_scheme(
+                                store.as_ref(),
+                                &profile,
+                                cli.token.as_deref(),
+                                &scheme,
+                            ) {
+                                Ok(credential) => credential,
+                                Err(crate::error::ClientError::MissingCredential(_)) => None,
+                                Err(error) => return Err(error),
+                            };
+                            if existing_credential.is_some() {
+                                crate::output::print_serialized_response(
+                                    &serde_json::json!({
+                                        "profile": profile,
+                                        "scheme": scheme,
+                                        "status": "authenticated",
+                                        "acquisition": "existing_or_refreshed",
+                                    }),
+                                    &output,
+                                );
+                                return Ok(());
+                            }
+                            let interaction = interaction.unwrap_or(if cli.no_input {
+                                AuthInteraction::Forbid
+                            } else {
+                                AuthInteraction::Allow
+                            });
+                            if matches!(interaction, AuthInteraction::Forbid)
+                                && !crate::oauth::provider_supports_noninteractive_acquisition(&scheme)
+                            {
+                                return Err(crate::error::ClientError::MissingCredential(format!(
+                                    "no usable credential for {scheme:?}; interaction policy forbids acquisition"
+                                )));
+                            }
+                            if crate::oauth::oauth_provider_for_scheme(&scheme).is_none() {
+                                return Err(crate::error::ClientError::UnsupportedAuth(format!(
+                                    "security scheme {scheme:?} has no configured acquisition provider"
+                                )));
+                            }
+                            if matches!(interaction, AuthInteraction::Relay)
+                                && crate::oauth::provider_requires_pasted_secret(&scheme)
+                            {
+                                return Err(crate::error::ClientError::UnsupportedAuth(
+                                    "agent relay refuses browser_token because it transfers a reusable bearer secret; configure OAuth device, PKCE, CIBA, workload identity, or a broker"
+                                        .to_string(),
+                                ));
+                            }
+                            let use_device = *device
+                                || (matches!(interaction, AuthInteraction::Relay)
+                                    && crate::oauth::provider_supports_device_authorization(&scheme)?);
+                            let environment_name = crate::profile::resolve_environment_name(
+                                &profile,
+                                cli.environment.as_deref(),
+                            )?;
+                            crate::oauth::login_with_configured_oauth_provider(
+                                store.as_ref(),
+                                &profile,
+                                &scheme,
+                                environment_name.as_deref(),
+                                use_device,
+                                !matches!(interaction, AuthInteraction::Allow),
+                            )?;
+                            crate::output::print_serialized_response(
+                                &serde_json::json!({
+                                    "profile": profile,
+                                    "scheme": scheme,
+                                    "status": "authenticated",
+                                    "acquisition": if use_device { "device" } else { "provider" },
+                                }),
+                                &output,
+                            );
+                            return Ok(());
+                        }
+                        AuthCommand::Login {
+                            scheme,
+                            token,
+                            device,
+                            no_browser,
+                            mock,
+                            subject,
+                            claims,
+                            ttl,
+                        } => {
+                            let scheme = resolve_requested_or_default_auth_scheme(scheme);
+                            if *mock {
+                                let subject = subject.clone().ok_or_else(|| {
+                                    crate::error::ClientError::MissingCredential(
+                                        "--subject is required with --mock".to_string(),
+                                    )
+                                })?;
+                                let claim_pairs = claims
+                                    .iter()
+                                    .map(|entry| {
+                                        entry
+                                            .split_once('=')
+                                            .map(|(key, value)| (key.to_string(), value.to_string()))
+                                            .ok_or_else(|| {
+                                                crate::error::ClientError::Decode(format!(
+                                                    "--claim {entry:?} must be key=value"
+                                                ))
+                                            })
+                                    })
+                                    .collect::<Result<Vec<_>, _>>()?;
+                                let environment_name = crate::profile::resolve_environment_name(
+                                    &profile,
+                                    cli.environment.as_deref(),
+                                )?;
+                                let token = crate::oauth::mint_and_store_mock_oauth_token(
+                                    store.as_ref(),
+                                    &profile,
+                                    &scheme,
+                                    environment_name.as_deref(),
+                                    &subject,
+                                    &claim_pairs,
+                                    *ttl,
+                                )?;
+                                crate::output::print_serialized_response(
+                                    &serde_json::json!({
+                                        "profile": profile,
+                                        "scheme": scheme,
+                                        "status": "saved",
+                                        "login": "mock",
+                                        "subject": subject,
+                                        "token": mask_credential_token_for_display(&token),
+                                    }),
+                                    &output,
+                                );
+                                return Ok(());
+                            }
+                            let (token, login_kind) = match token {
+                                Some(token) => (token.clone(), "manual"),
+                                None if crate::oauth::oauth_provider_for_scheme(&scheme).is_some() => {
+                                    if cli.no_input
+                                        && !crate::oauth::provider_supports_noninteractive_acquisition(&scheme)
+                                    {
+                                        return Err(crate::error::ClientError::MissingCredential(
+                                            "interactive OAuth login is disabled by --no-input".to_string(),
+                                        ));
+                                    }
+                                    let provider = crate::oauth::oauth_provider_for_scheme(&scheme)
+                                        .expect("provider existence was checked");
+                                    let browser_token = matches!(
+                                        provider.endpoints,
+                                        crate::oauth::OAuthEndpoints::BrowserToken { .. }
+                                    );
+                                    if browser_token && *device {
+                                        return Err(crate::error::ClientError::UnsupportedAuth(
+                                            "browser_token does not support --device".to_string(),
+                                        ));
+                                    }
+                                    let environment_name =
+                                        crate::profile::resolve_environment_name(
+                                            &profile,
+                                            cli.environment.as_deref(),
+                                        )?;
+                                    (
+                                        crate::oauth::login_with_configured_oauth_provider(
+                                            store.as_ref(),
+                                            &profile,
+                                            &scheme,
+                                            environment_name.as_deref(),
+                                            *device,
+                                            *no_browser,
+                                        )?,
+                                        crate::oauth::provider_acquisition_kind(&scheme, *device),
+                                    )
+                                }
+                                None if std::io::stdin().is_terminal() => {
+                                    let input = crate::oauth::prompt_hidden_credential(format!(
+                                        "Credential for {scheme} (input hidden): "
+                                    ))
+                                    .map_err(|error| crate::error::ClientError::Transport(error.to_string()))?;
+                                    (input.trim().to_string(), "manual")
+                                }
+                                None => {
+                                    return Err(crate::error::ClientError::MissingCredential(
+                                        "--token (stdin is not a terminal to prompt on)".to_string(),
+                                    ));
+                                }
+                            };
+                            if token.is_empty() {
+                                return Err(crate::error::ClientError::MissingCredential(
+                                    "credential must not be empty".to_string(),
+                                ));
+                            }
+                            if login_kind == "manual" {
+                                crate::oauth::save_manual_token_as_oauth_credential(
+                                    store.as_ref(),
+                                    &profile,
+                                    &scheme,
+                                    &token,
+                                )?;
+                            }
+                            crate::output::print_serialized_response(
+                                &serde_json::json!({
+                                    "profile": profile,
+                                    "scheme": scheme,
+                                    "status": "saved",
+                                    "login": login_kind,
+                                }),
+                                &output,
+                            );
+                        }
+                        AuthCommand::Logout { scheme } => {
+                            let scheme = resolve_requested_or_default_auth_scheme(scheme);
+                            let removed = crate::oauth::remove_oauth_credential_and_cached_tokens(store.as_ref(), &profile, &scheme)?;
+                            crate::output::print_serialized_response(
+                                &serde_json::json!({
+                                    "profile": profile,
+                                    "scheme": scheme,
+                                    "removed": removed,
+                                }),
+                                &output,
+                            );
+                        }
+                        AuthCommand::Whoami { scheme } => {
+                            let scheme = resolve_requested_or_default_auth_scheme(scheme);
+                            let credential = resolve_auth_credential_value_for_scheme(
+                                store.as_ref(),
+                                &profile,
+                                cli.token.as_deref(),
+                                &scheme,
+                            )?;
+                            let oauth = crate::oauth::oauth_credential_status(store.as_ref(), &profile, &scheme)?;
+                            let identity = match credential.as_deref() {
+                                Some(token) => crate::oauth::project_identity_from_token(&scheme, token)?,
+                                None => None,
+                            };
+                            crate::output::print_serialized_response(
+                                &serde_json::json!({
+                                    "profile": profile,
+                                    "scheme": scheme,
+                                    "authenticated": credential.is_some(),
+                                    "token": credential.as_deref().map(mask_credential_token_for_display),
+                                    "oauth": oauth,
+                                    "identity": identity,
+                                }),
+                                &output,
+                            );
+                        }
+                    }
+                    return Ok(());
+                }
+                if let Command::Profile { command } = &cli.command {
+                    match command {
+                        ProfileCommand::List => {
+                            let profiles = crate::profile::list_connection_profiles()?
+                                .into_iter()
+                                .map(|(name, connection)| {
+                                    serde_json::json!({
+                                        "name": name,
+                                        "base_url": connection.base_url,
+                                        "environment": connection.environment,
+                                    })
+                                })
+                                .collect::<Vec<_>>();
+                            crate::output::print_serialized_response(
+                                &serde_json::Value::Array(profiles),
+                                &output,
+                            );
+                        }
+                        ProfileCommand::Show => {
+                            let connection = crate::profile::connection_profile(&profile)?;
+                            let resolved_base_url = crate::profile::resolve_base_url(
+                                &profile,
+                                cli.base_url.as_deref(),
+                                cli.environment.as_deref(),
+                            )
+                            .ok();
+                            crate::output::print_serialized_response(
+                                &serde_json::json!({
+                                    "name": profile,
+                                    "base_url": connection.base_url,
+                                    "environment": connection.environment,
+                                    "resolved_base_url": resolved_base_url,
+                                }),
+                                &output,
+                            );
+                        }
+                        ProfileCommand::Set {
+                            base_url,
+                            environment,
+                        } => {
+                            let connection = crate::profile::set_connection_profile(
+                                &profile,
+                                base_url.clone(),
+                                environment.clone(),
+                            )?;
+                            let resolved_base_url = crate::profile::resolve_base_url(
+                                &profile,
+                                None,
+                                None,
+                            )?;
+                            crate::output::print_serialized_response(
+                                &serde_json::json!({
+                                    "name": profile,
+                                    "base_url": connection.base_url,
+                                    "environment": connection.environment,
+                                    "resolved_base_url": resolved_base_url,
+                                }),
+                                &output,
+                            );
+                        }
+                    }
+                    return Ok(());
+                }
+                if let Command::Env { command } = &cli.command {
+                    match command {
+                        EnvCommand::List => {
+                            let environments = crate::profile::environment_catalog()
+                                .iter()
+                                .map(|(name, url)| {
+                                    serde_json::json!({ "name": name, "base_url": url })
+                                })
+                                .collect::<Vec<_>>();
+                            crate::output::print_serialized_response(
+                                &serde_json::Value::Array(environments),
+                                &output,
+                            );
+                        }
+                    }
+                    return Ok(());
+                }
+
+                let base_url = crate::profile::resolve_base_url(
+                    &profile,
+                    cli.base_url.as_deref(),
+                    cli.environment.as_deref(),
+                )?;
+                let token = match &cli.token {
+                    Some(token) => Some(token.clone()),
+                    None => match crate::oauth::default_oauth_scheme_name() {
+                        Some(scheme) => store.get_credential_secret(&profile, scheme)?,
+                        None => crate::profile::load_legacy_token_credential(store.as_ref(), &profile)?,
+                    },
+                };
+                let credentials = crate::client::load_named_credentials_from_cli_inputs(
+                    &cli.credentials,
+                    cli.credential_file.as_deref(),
+                    cli.credentials_json.as_deref(),
+                )?;
+                let client = crate::client::Client::new(
+                    base_url,
+                    token.clone(),
+                    cli.client_id.clone(),
+                    cli.client_secret.clone(),
+                    credentials,
+                    profile.clone(),
+                    store.clone(),
+                    cli.debug,
+                );
+                match &cli.command {
+                    #(#arms)*
+                    Command::Auth { .. }
+                    | Command::Profile { .. }
+                    | Command::Env { .. }
+                    | Command::Start
+                    | Command::Schema { .. }
+                    | Command::Completions { .. }
+                    | Command::Achieve { .. }
+                    | Command::Run { .. } => {
+                        unreachable!("handled above")
+                    }
+                    Command::Reset => {
+                        let mut cleared = 0usize;
+                        let mut unresettable = 0usize;
+                        for entry in crate::session::take_created_resources_from_session_reset_log()
+                            .into_iter()
+                            .rev()
+                        {
+                            let id = match &entry.id {
+                                serde_json::Value::String(value) => value.clone(),
+                                other => other.to_string(),
+                            };
+                            let handled = match entry.resource.as_str() {
+                                #(#reset_arms)*
+                                _ => false,
+                            };
+                            if handled {
+                                cleared += 1;
+                            } else {
+                                unresettable += 1;
+                            }
+                        }
+                        crate::output::print_serialized_response(
+                            &serde_json::json!({ "cleared": cleared, "unresettable": unresettable }),
+                            &output,
+                        );
+                    }
+                    Command::Api {
+                        method,
+                        path,
+                        body,
+                        body_json,
+                        body_fields,
+                    } => {
+                        let request_body = if let Some(source) = body {
+                            Some(crate::client::RequestBody::Json(
+                                crate::client::read_request_body_text(source)?.into_bytes(),
+                            ))
+                        } else if let Some(source) = body_json {
+                            Some(crate::client::RequestBody::Json(
+                                serde_json::to_vec(
+                                    &tokyo_cli_runtime::body::parse_inline_json_request_body(source)?
+                                )
+                                .expect("a JSON value always serializes"),
+                            ))
+                        } else if !body_fields.is_empty() {
+                            Some(crate::client::RequestBody::Json(
+                                serde_json::to_vec(
+                                    &tokyo_cli_runtime::body::parse_json_request_body_from_field_assignments(body_fields)?
+                                )
+                                .expect("a JSON value always serializes"),
+                            ))
+                        } else {
+                            None
+                        };
+                        let auth = if token.is_some() {
+                            crate::client::AuthMode::Requirements(&[
+                                crate::client::AuthAlternative {
+                                    schemes: &[crate::client::AuthScheme {
+                                        name: "",
+                                        kind: crate::client::AuthSchemeKind::Bearer,
+                                        scopes: &[],
+                                    }],
+                                },
+                            ])
+                        } else {
+                            crate::client::AuthMode::None
+                        };
+                        let response = client.request(
+                            *method,
+                            crate::client::RequestTarget::Relative(path),
+                            &[],
+                            &[],
+                            auth,
+                            request_body,
+                            Some("application/json"),
+                            None,
+                            None,
+                        )?;
+                        let value: serde_json::Value = if response.body.is_empty() {
+                            serde_json::Value::Null
+                        } else {
+                            serde_json::from_slice(&response.body)
+                                .map_err(|error| crate::error::ClientError::Decode(error.to_string()))?
+                        };
+                        crate::output::print_serialized_response(&value, &output);
+                    }
+                }
+                Ok(())
+            }
+        }
+
+        #[cfg(test)]
+        mod entry_help_tests {
+            struct EmptyStore;
+
+            impl crate::profile::CredentialStore for EmptyStore {
+                fn get_credential_secret(
+                    &self,
+                    _profile: &str,
+                    _scheme: &str,
+                ) -> Result<Option<String>, crate::error::ClientError> {
+                    Ok(None)
+                }
+
+                fn save_credential_secret(
+                    &self,
+                    _profile: &str,
+                    _scheme: &str,
+                    _value: &str,
+                ) -> Result<(), crate::error::ClientError> {
+                    Ok(())
+                }
+
+                fn delete_credential_secret(
+                    &self,
+                    _profile: &str,
+                    _scheme: &str,
+                ) -> Result<bool, crate::error::ClientError> {
+                    Ok(false)
+                }
+            }
+
+            #[test]
+            fn help_for_profile_without_credential_reports_unauthenticated() {
+                let args = vec![
+                    #product_name.to_string(),
+                    "--profile".to_string(),
+                    "brand-new-empty-profile".to_string(),
+                    "--help".to_string(),
+                ];
+
+                let banner = super::entry_help_banner(&args, &EmptyStore);
+
+                assert!(banner.starts_with("✗ Not authenticated"), "{banner}");
+                assert!(!banner.contains("✓ Authenticated"), "{banner}");
+            }
+        }
+    }
+}
+
+fn resource_variant_rust_identifier(enum_name: &syn::Ident) -> syn::Ident {
+    let name = enum_name.to_string();
+    rust_identifier(name.strip_suffix("Command").unwrap_or(&name))
+}

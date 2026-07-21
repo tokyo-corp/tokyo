@@ -1,0 +1,115 @@
+openapi: 3.1.0
+info:
+  title: Authentication semantics
+  version: "1.0.0"
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+    basicAuth:
+      type: http
+      scheme: basic
+    primaryKey:
+      type: apiKey
+      in: header
+      name: X-Primary-Key
+    secondaryKey:
+      type: apiKey
+      in: header
+      name: X-Secondary-Key
+    sessionCookie:
+      type: apiKey
+      in: cookie
+      name: session_id
+    machineOAuth:
+      type: oauth2
+      flows:
+        clientCredentials:
+          tokenUrl: https://identity.example.test/oauth/token
+          scopes:
+            read: Read resources
+            write: Write resources
+    relativeMachineOAuth:
+      type: oauth2
+      flows:
+        clientCredentials:
+          tokenUrl: /oauth/relative-token
+          scopes:
+            read: Read resources
+    interactiveOAuth:
+      type: oauth2
+      flows:
+        authorizationCode:
+          authorizationUrl: https://identity.example.test/authorize
+          tokenUrl: https://identity.example.test/oauth/token
+          scopes:
+            profile: Read profile
+security:
+  - primaryKey: []
+paths:
+  /inherited:
+    get:
+      operationId: inheritedAuth
+      responses:
+        "204":
+          description: Inherits root security
+  /public:
+    get:
+      operationId: publicOperation
+      security: []
+      responses:
+        "204":
+          description: Explicitly public
+  /optional:
+    get:
+      operationId: optionalAuth
+      security:
+        - bearerAuth: []
+        - {}
+      responses:
+        "204":
+          description: Authenticated or anonymous
+  /alternative:
+    get:
+      operationId: alternativeAuth
+      security:
+        - bearerAuth: []
+        - basicAuth: []
+      responses:
+        "204":
+          description: Bearer or basic
+  /combined:
+    get:
+      operationId: combinedAuth
+      security:
+        - primaryKey: []
+          secondaryKey: []
+          sessionCookie: []
+      responses:
+        "204":
+          description: Both header keys and caller-managed cookie
+  /machine:
+    get:
+      operationId: machineAuth
+      security:
+        - machineOAuth: [read]
+      responses:
+        "204":
+          description: Client credentials with required scope
+  /interactive:
+    get:
+      operationId: interactiveAuth
+      security:
+        - interactiveOAuth: [profile]
+      responses:
+        "204":
+          description: Caller-provided OAuth bearer token
+  /relative-machine:
+    get:
+      operationId: relativeMachineAuth
+      security:
+        - relativeMachineOAuth: [read]
+      responses:
+        "204":
+          description: Client credentials with a relative token endpoint

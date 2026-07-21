@@ -12,6 +12,10 @@ name = {generated_cli_product_name:?}
 version = "0.1.0"
 edition = "2024"
 
+[[bin]]
+name = {generated_cli_product_name:?}
+path = ".tokyo/src/main.rs"
+
 [dependencies]
 chrono = {{ version = "0.4.42", features = ["serde"] }}
 clap = {{ version = "4.6.1", features = ["derive", "env"] }}
@@ -84,13 +88,23 @@ pub fn render_generated_cli_readme_source_file(
         r#"# {generated_cli_product_name}
 
 Tokyo CLI application. Add handwritten commands under `src/routes/**`; do not
-edit Tokyo-managed files under `src/tokyo/**`.
+edit Tokyo-managed files under `.tokyo/**`.
 
 {first_login_instructions_markdown}{local_environment_usage_markdown}## Usage
 
 ```sh
 {generated_cli_product_name} --base-url https://api.example.com --token "$API_TOKEN" <resource> <command> [args]
 ```
+
+For local development, keep `tokyo dev` running and execute the stable binary
+directly:
+
+```sh
+./.tokyo/bin/{generated_cli_product_name} <command> [args]
+```
+
+Agents should use this path instead of repeatedly invoking `cargo run`. It
+always points at the latest successful development build.
 
 `--base-url`/`--token` can also come from `{environment_variable_prefix}_BASE_URL`/`{environment_variable_prefix}_TOKEN`.
 For APIs with multiple named security schemes, repeat `--credential SCHEME=VALUE`,
@@ -247,8 +261,8 @@ member method/path pairs.
 ## Extending this CLI with routes
 
 This directory is a normal Rust application that you own. Tokyo manages only
-`src/tokyo/**`, `src/cli.rs`, `src/main.rs`, and `.tokyo/**`. Application code
-is user-owned after the initial scaffold:
+`.tokyo/**`. Application code and root project files are user-owned after the
+initial scaffold:
 
 - `src/routes/**` — add commands with one `pub fn route() -> Route` per file;
   directories become nested command groups;
@@ -263,6 +277,9 @@ is user-owned after the initial scaffold:
 
 `src/commands/custom.rs` remains as a user-owned compatibility hook for older
 generated projects; new commands should be filesystem routes.
+
+`Cargo.toml` points the application binary at `.tokyo/src/main.rs`; add the
+dependencies needed by handwritten routes there.
 
 Regeneration never overwrites user-owned files, and hand-edits to Tokyo-managed
 files are detected (via content hashes in `.tokyo/manifest.json`) rather than

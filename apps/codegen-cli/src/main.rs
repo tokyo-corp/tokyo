@@ -288,7 +288,7 @@ fn differences_error(message: impl Into<String>) -> anyhow::Error {
 
 fn run_init_command(arguments: InitArgs) -> AppResult<()> {
     validate_project_name(&arguments.name)?;
-    let files = scaffold_files(&arguments.name);
+    let files = materialize_project_files(&arguments.name, &arguments.directory)?;
     install_scaffold(&arguments.directory, &files)?;
     println!(
         "initialized Tokyo project {} in {}",
@@ -296,6 +296,32 @@ fn run_init_command(arguments: InitArgs) -> AppResult<()> {
         arguments.directory.display()
     );
     Ok(())
+}
+
+fn materialize_project_files(
+    name: &str,
+    output_directory: &Path,
+) -> AppResult<BTreeMap<String, Vec<u8>>> {
+    let mut codegen_config = Config {
+        package: Some(name.to_string()),
+        cli_name: Some(name.to_string()),
+        ..Config::default()
+    };
+    codegen_config.output = None;
+    let mut api = Api::default();
+    tokyo_codegen_engine::apply_codegen_config_to_api(&mut api, &codegen_config)
+        .map_err(engine_output_error)?;
+    api.canonicalize();
+
+    let routes = [DiscoveredRoute {
+        command_path: vec!["index".to_string()],
+        source_path: output_directory.join("src/routes/index.rs"),
+    }];
+    let desired = build_desired_generated_files_by_relative_path(&api, &routes, output_directory)?;
+    let mut files = scaffold_files(name);
+    files.extend(desired.unmanaged_starter_files_by_relative_path);
+    files.extend(desired.managed_files_by_relative_path);
+    Ok(files)
 }
 
 fn run_openapi_command(arguments: OpenapiArgs) -> AppResult<()> {
@@ -349,26 +375,11 @@ fn validate_project_name(name: &str) -> AppResult<()> {
 }
 
 fn scaffold_files(name: &str) -> BTreeMap<String, Vec<u8>> {
-    let runtime_version = env!("CARGO_PKG_VERSION");
     let files = [
         (".gitignore", "/target\n/.tokyo/bin\n"),
         (
-            "Cargo.toml",
-            &format!(
-                "[workspace]\n\n[package]\nname = {name:?}\nversion = \"0.1.0\"\nedition = \"2024\"\n\n[dependencies]\nclap = {{ version = \"4.6.1\", features = [\"derive\", \"env\"] }}\nclap_complete = \"4.6.1\"\nchrono = {{ version = \"0.4.42\", features = [\"serde\"] }}\nserde = {{ version = \"1.0.228\", features = [\"derive\"] }}\nserde_json = \"1.0.150\"\ntokyo-cli-runtime = \"={runtime_version}\"\nuuid = {{ version = \"1.18.1\", features = [\"serde\"] }}\n"
-            ),
-        ),
-        (
             "tokyo.toml",
             &format!("[project]\nname = {name:?}\nroutes = \"src/routes\"\n"),
-        ),
-        (
-            "src/main.rs",
-            "mod middleware;\nmod routes;\n\nfn main() {\n    eprintln!(\"run `tokyo generate` before building this project\");\n}\n",
-        ),
-        (
-            "src/middleware.rs",
-            "//! Application-wide middleware for filesystem routes.\n\nuse tokyo_cli_runtime::prelude::Route;\n\n/// Decorates every route before Tokyo registers or runs it.\npub fn decorate(route: Route) -> Route {\n    route\n    // Example:\n    // .middleware_fn(|context, next| {\n    //     eprintln!(\"running filesystem route\");\n    //     next.run(context)\n    // })\n}\n",
         ),
         ("src/routes/mod.rs", "pub mod index;\n"),
         (
@@ -376,15 +387,10 @@ fn scaffold_files(name: &str) -> BTreeMap<String, Vec<u8>> {
             "use tokyo_cli_runtime::prelude::*;\n\n/// Defines the default local route.\npub fn route() -> Route {\n    Route::new(RouteSpec::new(\"index\").about(\"Print a greeting\"), |_| {\n        Ok(RouteResponse::text(\"Hello from Tokyo\"))\n    })\n}\n",
         ),
     ];
-    let mut files: BTreeMap<String, Vec<u8>> = files
+    let files: BTreeMap<String, Vec<u8>> = files
         .into_iter()
         .map(|(path, contents)| (path.to_string(), contents.as_bytes().to_vec()))
         .collect();
-    files.extend(
-        tokyo_emit_cli::project_skill_starter_files()
-            .into_iter()
-            .map(|file| (file.relative_path, file.contents.into_bytes())),
-    );
     files
 }
 
@@ -754,7 +760,7 @@ fn run_dev_command(dev_command_arguments: DevArgs) -> AppResult<()> {
             dev_build_only(&output_directory, runtime_path.as_deref());
         }
         // Regenerating and building both write into the watched tree
-        // (managed `src/tokyo/**` files, `.tokyo/bin/<name>`). Drain the
+        // (managed `.tokyo/src/**` files, `.tokyo/bin/<name>`). Drain the
         // events those writes themselves produce so they don't immediately
         // trigger a second, redundant rebuild.
         while event_rx.recv_timeout(Duration::from_millis(400)).is_ok() {}
@@ -1717,7 +1723,7 @@ fn render_route_registry(routes: &[DiscoveredRoute], output_directory: &Path) ->
         expression
     }
 
-    let registry_directory = output_directory.join("src/tokyo");
+    let registry_directory = output_directory.join(".tokyo/src/tokyo");
     let mut source = String::from(
         "// Code generated by tokyo-codegen. DO NOT EDIT BY HAND.\n\
          // Route bodies remain developer-owned under the configured routes directory.\n\n",
@@ -1843,7 +1849,7 @@ fn build_desired_generated_files_by_relative_path(
         }
     }
     generated_files_by_relative_path.insert(
-        "src/tokyo/routes.rs".to_string(),
+        ".tokyo/src/tokyo/routes.rs".to_string(),
         render_route_registry(routes, output_directory)?.into_bytes(),
     );
 

@@ -1,0 +1,23 @@
+[package]
+name = "tokyo-codegen-engine"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+publish.workspace = true
+description = "Path-free orchestration for Tokyo code generators"
+keywords = ["cli", "codegen", "openapi"]
+categories = ["development-tools"]
+
+[dependencies]
+tokyo-import-openapi.workspace = true
+tokyo-ir.workspace = true
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true, features = ["arbitrary_precision"] }
+thiserror.workspace = true
+url.workspace = true
+
+[lints]
+workspace = true

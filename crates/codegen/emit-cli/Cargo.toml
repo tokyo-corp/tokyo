@@ -1,0 +1,28 @@
+[package]
+name = "tokyo-emit-cli"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+publish.workspace = true
+description = "Rust CLI emitter for the Tokyo route-first framework"
+keywords = ["cli", "codegen", "openapi"]
+categories = ["development-tools"]
+
+[dependencies]
+tokyo-codegen-engine.workspace = true
+tokyo-ir.workspace = true
+heck.workspace = true
+prettyplease.workspace = true
+proc-macro2.workspace = true
+quote.workspace = true
+serde_json.workspace = true
+syn = { workspace = true, features = ["full", "extra-traits"] }
+
+[dev-dependencies]
+tokyo-import-openapi.workspace = true
+
+[lints]
+workspace = true

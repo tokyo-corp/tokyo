@@ -1,0 +1,202 @@
+openapi: 3.1.0
+info:
+  title: OpenAPI coverage
+  version: 1.0.0
+servers:
+  - url: https://{region}.api.example.test/v1
+    variables:
+      region:
+        default: us
+x-tokyo-pagination-delay-ms: 5
+paths:
+  /items:
+    get:
+      operationId: listItems
+      summary: List items
+      description: Returns documented items safely, even with */ in source prose.
+      tags: [Items]
+      x-tokyo-pagination:
+        kind: cursor
+        pageParam: cursor
+        nextField: nextCursor
+        resultsField: items
+      parameters:
+        - name: cursor
+          in: query
+          description: Cursor returned by the previous page.
+          schema:
+            type: string
+        - name: filter
+          in: query
+          description: Nested item filters.
+          style: deepObject
+          explode: true
+          schema:
+            type: object
+            additionalProperties:
+              type: string
+      responses:
+        "200":
+          description: page
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ItemPage"
+  /events:
+    get:
+      operationId: watchEvents
+      summary: Watch events
+      tags: [Events]
+      x-tokyo-streaming:
+        kind: sse
+      responses:
+        "200":
+          description: events
+          content:
+            text/event-stream:
+              schema:
+                $ref: "#/components/schemas/Event"
+  /records:
+    get:
+      operationId: streamRecords
+      tags: [Events]
+      x-tokyo-streaming: ndjson
+      responses:
+        "200":
+          description: records
+          content:
+            application/x-ndjson:
+              schema:
+                $ref: "#/components/schemas/Event"
+  /chat:
+    post:
+      operationId: createChatCompletion
+      tags: [Events]
+      servers:
+        - url: https://stream.api.example.test
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ChatRequest"
+      responses:
+        "200":
+          description: completion or stream
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ChatResponse"
+            text/event-stream:
+              schema:
+                $ref: "#/components/schemas/ChatChunk"
+  /{upload_url}:
+    parameters:
+      - name: upload_url
+        in: path
+        required: true
+        schema:
+          type: string
+    put:
+      operationId: uploadPresigned
+      tags: [Events]
+      servers:
+        - url: https://
+      requestBody:
+        required: true
+        content:
+          application/octet-stream:
+            schema:
+              type: string
+              format: binary
+      responses:
+        "204":
+          description: uploaded
+  /submit:
+    post:
+      operationId: submitForm
+      tags: [Items]
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: "#/components/schemas/FormInput"
+      responses:
+        "204":
+          description: accepted
+components:
+  schemas:
+    Labels:
+      type: object
+      description: Typed arbitrary labels.
+      additionalProperties:
+        type: string
+    Status:
+      description: Known statuses with an open-string escape hatch.
+      oneOf:
+        - type: string
+          enum: [active, paused]
+        - type: string
+    Item:
+      type: object
+      description: A documented item.
+      required: [id, status, labels]
+      properties:
+        id:
+          type: string
+          description: Stable item identifier.
+        status:
+          $ref: "#/components/schemas/Status"
+        labels:
+          $ref: "#/components/schemas/Labels"
+    ItemPage:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/Item"
+        nextCursor:
+          type: [string, "null"]
+    Event:
+      type: object
+      required: [id]
+      properties:
+        id:
+          type: string
+        payload:
+          type: object
+          additionalProperties: true
+    ChatRequest:
+      type: object
+      required: [message]
+      properties:
+        message:
+          type: string
+        stream:
+          type: boolean
+          default: false
+    ChatResponse:
+      type: object
+      required: [message]
+      properties:
+        message:
+          type: string
+    ChatChunk:
+      type: object
+      required: [delta]
+      properties:
+        delta:
+          type: string
+    FormInput:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+        tags:
+          type: array
+          items:
+            type: string

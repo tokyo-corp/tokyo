@@ -1,0 +1,56 @@
+[workspace]
+resolver = "3"
+members = [
+    "apps/codegen-cli",
+    "crates/cli-runtime",
+    "crates/codegen/codegen-engine",
+    "crates/codegen/emit-cli",
+    "crates/codegen/import-openapi",
+    "crates/codegen/ir",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.90"
+license = "MIT"
+repository = "https://github.com/tokyo-corp/tokyo"
+homepage = "https://github.com/tokyo-corp/tokyo"
+publish = ["crates-io"]
+
+[workspace.dependencies]
+anyhow = "1.0.100"
+clap = "4.6.1"
+heck = "0.5.0"
+oas3 = "0.22.0"
+prettyplease = "0.2.20"
+proc-macro2 = "1.0.86"
+quote = "1.0.36"
+serde = "1.0.228"
+serde_json = "1.0.150"
+sha2 = "0.10.9"
+syn = "2.0.79"
+thiserror = "2.0.18"
+toml = "1.1.2"
+url = "2.5.8"
+yaml_serde = "0.10.4"
+
+tokyo-cli-runtime = { version = "0.1.0", path = "crates/cli-runtime" }
+tokyo-codegen-engine = { version = "0.1.0", path = "crates/codegen/codegen-engine" }
+tokyo-emit-cli = { version = "0.1.0", path = "crates/codegen/emit-cli" }
+tokyo-import-openapi = { version = "0.1.0", path = "crates/codegen/import-openapi" }
+tokyo-ir = { version = "0.1.0", path = "crates/codegen/ir" }
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+missing_docs = "warn"
+
+[workspace.lints.clippy]
+dbg_macro = "warn"
+todo = "warn"
+unimplemented = "warn"
+
+[profile.release]
+codegen-units = 1
+lto = "thin"
+strip = "symbols"

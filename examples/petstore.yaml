@@ -1,0 +1,129 @@
+openapi: 3.1.0
+info:
+  title: Petstore
+  version: "1.0.0"
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+
+  schemas:
+    PetStatus:
+      type: string
+      enum: [available, pending, sold]
+
+    Pet:
+      type: object
+      required: [id, name, status]
+      properties:
+        id:
+          type: integer
+          format: int64
+        name:
+          type: string
+        status:
+          $ref: "#/components/schemas/PetStatus"
+        tag:
+          type: string
+
+    CreatePetRequest:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+        tag:
+          type: string
+
+    Person:
+      type: object
+      required: [kind, fullName]
+      properties:
+        kind:
+          type: string
+        fullName:
+          type: string
+
+    Company:
+      type: object
+      required: [kind, companyName]
+      properties:
+        kind:
+          type: string
+        companyName:
+          type: string
+
+    Owner:
+      oneOf:
+        - $ref: "#/components/schemas/Person"
+        - $ref: "#/components/schemas/Company"
+      discriminator:
+        propertyName: kind
+        mapping:
+          person: "#/components/schemas/Person"
+          company: "#/components/schemas/Company"
+
+    Error:
+      type: object
+      required: [message]
+      properties:
+        message:
+          type: string
+
+security:
+  - bearerAuth: []
+
+paths:
+  /pets:
+    get:
+      operationId: listPets
+      responses:
+        "200":
+          description: A list of pets
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Pet"
+    post:
+      operationId: createPet
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreatePetRequest"
+      responses:
+        "200":
+          description: The created pet
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Pet"
+
+  /pets/{petId}:
+    get:
+      operationId: getPet
+      parameters:
+        - name: petId
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+      responses:
+        "200":
+          description: A single pet
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Pet"
+        default:
+          description: Unexpected error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"

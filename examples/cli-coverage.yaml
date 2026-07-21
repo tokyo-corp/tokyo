@@ -1,0 +1,227 @@
+openapi: 3.1.0
+info:
+  title: CLI coverage
+  version: "1.0.0"
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+
+  schemas:
+    Item:
+      type: object
+      required: [id, name]
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        description:
+          type: string
+
+    CreateItemRequest:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+          example: "Sample Item"
+        description:
+          type: string
+
+    Note:
+      type: object
+      required: [id, text]
+      properties:
+        id:
+          type: string
+        text:
+          type: string
+
+    Address:
+      type: object
+      required: [street, city]
+      properties:
+        street:
+          type: string
+        city:
+          type: string
+
+    CreateUserRequest:
+      type: object
+      required: [name, email, address]
+      properties:
+        name:
+          type: string
+        email:
+          type: string
+        age:
+          type: integer
+        address:
+          $ref: "#/components/schemas/Address"
+
+    User:
+      type: object
+      required: [id, name, email]
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        email:
+          type: string
+
+    Error:
+      type: object
+      required: [message]
+      properties:
+        message:
+          type: string
+
+security:
+  - bearerAuth: []
+
+paths:
+  /items:
+    get:
+      operationId: listItems
+      tags: [Items]
+      x-tokyo-cli-name: ls
+      x-tokyo-cli-aliases: [list]
+      parameters:
+        - name: q
+          in: query
+          schema:
+            type: string
+        - name: limit
+          in: query
+          schema:
+            type: integer
+        - name: tag
+          in: query
+          schema:
+            type: array
+            items:
+              type: string
+      responses:
+        "200":
+          description: A list of items
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Item"
+    post:
+      operationId: createItem
+      tags: [Items]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateItemRequest"
+      responses:
+        "200":
+          description: The created item
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Item"
+
+  /items/{itemId}:
+    get:
+      operationId: getItem
+      tags: [Items]
+      parameters:
+        - name: itemId
+          in: path
+          required: true
+          schema:
+            type: string
+            example: "item_123"
+      responses:
+        "200":
+          description: A single item
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Item"
+        default:
+          description: Unexpected error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+    delete:
+      operationId: deleteItem
+      tags: [Items]
+      parameters:
+        - name: itemId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "204":
+          description: Deleted
+
+  /items/{itemId}/archive:
+    put:
+      operationId: archiveItem
+      tags: [Items]
+      x-tokyo-cli-ignore: true
+      parameters:
+        - name: itemId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "204":
+          description: Archived
+
+  /users/{userId}/notes:
+    get:
+      operationId: listUserNotes
+      tags: [Users]
+      parameters:
+        - name: userId
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: X-Trace-Id
+          in: header
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Notes for a user
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Note"
+
+  /users:
+    post:
+      operationId: createUser
+      tags: [Users]
+      x-tokyo-cli-hidden: true
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateUserRequest"
+      responses:
+        "200":
+          description: The created user
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"

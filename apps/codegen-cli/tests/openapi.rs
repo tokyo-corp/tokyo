@@ -128,7 +128,7 @@ fn local_add_is_canonical_deterministic_and_generates_with_routes() {
     );
     let lock = fs::read_to_string(project.join("tokyo.lock")).unwrap();
     assert!(lock.contains("format_version = 1"), "{lock}");
-    assert!(lock.contains("generator_version = \"0.1.1\""), "{lock}");
+    assert!(lock.contains("generator_version = \"0.1.2\""), "{lock}");
     assert!(lock.contains("sha256 = \""), "{lock}");
     assert!(!lock.contains("time"), "{lock}");
 

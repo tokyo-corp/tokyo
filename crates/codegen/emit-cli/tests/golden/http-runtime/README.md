@@ -185,7 +185,7 @@ initial scaffold:
   appear in `start`, `--help`, and `schema --command` detail;
 - `src/presentation.rs` — restyle help, colors, banners, and ordering for the
   whole command tree;
-- `.cursor/skills/**` — teach coding agents Tokyo's project workflows and your
+- `.skills/**` — teach coding agents Tokyo's project workflows and your
   application-specific practices.
 
 `src/commands/custom.rs` remains as a user-owned compatibility hook for older

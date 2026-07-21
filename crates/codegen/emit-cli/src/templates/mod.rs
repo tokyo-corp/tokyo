@@ -21,5 +21,6 @@ pub use middleware::MIDDLEWARE_RS;
 pub use presentation::PRESENTATION_RS;
 pub use project_files::{
     render_generated_cli_cargo_manifest_source_file, render_generated_cli_readme_source_file,
+    render_generated_cli_release_workflow_source_file,
 };
 pub use skills::project_skill_starter_files;

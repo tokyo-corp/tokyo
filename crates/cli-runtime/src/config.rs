@@ -42,6 +42,10 @@ pub struct UpdateConfig {
     pub asset_prefix: &'static str,
     /// This build's version, e.g. `env!("CARGO_PKG_VERSION")`.
     pub current_version: &'static str,
+    /// Minimum time between GitHub Releases checks, throttled per install via
+    /// a timestamp file. Each check is a real network call, so shorter
+    /// intervals mean faster propagation but more GitHub API traffic.
+    pub check_interval: std::time::Duration,
 }
 
 #[derive(Clone, Copy, Debug)]

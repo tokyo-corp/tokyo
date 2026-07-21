@@ -51,8 +51,8 @@ through that path instead of repeatedly invoking `cargo run`.
 Tokyo manages only `.tokyo/**`; its generated Rust lives under
 `.tokyo/src/**` and can be regenerated at any time. Developers own
 `Cargo.toml`, `README.md`, `src/routes/**`, `src/middleware.rs`,
-`src/commands/guidance.rs`, `src/presentation.rs`, and the scaffolded Cursor
-skills under `.cursor/skills/**`. The scaffolded manifest points its binary at
+`src/commands/guidance.rs`, `src/presentation.rs`, and the scaffolded agent
+skills under `.skills/**`. The scaffolded manifest points its binary at
 `.tokyo/src/main.rs`, so add dependencies for handwritten routes there.
 
 Managed files are recorded with SHA-256 hashes in `.tokyo/manifest.json`.
@@ -85,10 +85,37 @@ Tokyo imports bundled OpenAPI 3.1 and performs best-effort normalization of
 common OpenAPI 3.0 differences. Unsupported constructs fail with contextual
 errors instead of being silently omitted.
 
+## Self-update
+
+Generated CLIs can update themselves in place from GitHub Releases. It's
+opt-in and fully inert until configured: set `update` in `src/config.rs`
+(default is `None`, which makes `check_and_apply` a no-op — no network calls,
+no filesystem writes):
+
+```rust
+update: Some(tokyo_cli_runtime::UpdateConfig {
+    repository: "your-org/your-cli-repo",
+    asset_prefix: "your-cli-binary-name",
+    current_version: env!("CARGO_PKG_VERSION"),
+    check_interval: std::time::Duration::from_secs(15 * 60),
+}),
+```
+
+On startup the generated CLI checks the repository's latest release (skipped
+in CI and throttled per install to `check_interval`, via a timestamp file),
+and if a newer version is published, downloads the matching release asset
+(named `{asset_prefix}-{tag}-{target-triple}.tar.gz`, verified against a
+`SHA256SUMS` asset in the same release) and swaps its own binary in place.
+Checks and updates are best-effort and silent: any failure is swallowed and
+never affects the calling command's exit code. Publishing a new release is a
+normal CI/CD step; `tokyo update-branch --validate --push --pr` (below) is
+what turns an upstream API spec change into that release-worthy PR in the
+first place.
+
 ## Generator commands
 
 - `tokyo init`: create a complete, buildable route-first Cargo project and its
-  Cursor skills.
+  agent skills.
 - `tokyo generate`: emit managed files and scaffold missing developer-owned
   starters.
 - `tokyo check`: report generated drift without writing.

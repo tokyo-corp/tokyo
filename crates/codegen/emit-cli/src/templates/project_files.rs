@@ -28,6 +28,159 @@ uuid = {{ version = "1.18.1", features = ["serde"] }}
     )
 }
 
+/// Renders the generated CLI project's starter GitHub Actions release
+/// workflow: cross-compiled binaries attached to a GitHub Release on every
+/// `v*` tag push, plus an opt-in `cargo publish` job that stays a no-op until
+/// the project owner flips the `PUBLISH_TO_CRATES_IO` repository variable on.
+pub fn render_generated_cli_release_workflow_source_file(
+    generated_cli_product_name: &str,
+) -> String {
+    format!(
+        r#"name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+concurrency:
+  group: release-${{{{ github.ref }}}}
+  cancel-in-progress: false
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+jobs:
+  validate:
+    name: Validate release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy,rustfmt
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo fmt --all --check
+      - run: cargo clippy --all-targets --all-features --locked -- -D warnings
+      - run: cargo test --locked
+
+  # Off by default: publishing a binary CLI to crates.io is optional, and
+  # `cargo publish` needs a registry token this project doesn't have yet.
+  # To turn it on, set the repository variable PUBLISH_TO_CRATES_IO=true
+  # (Settings -> Secrets and variables -> Actions -> Variables) and enable
+  # Trusted Publishing for this crate at https://crates.io/crates/{generated_cli_product_name}/settings.
+  publish-crate:
+    name: Publish to crates.io
+    needs: validate
+    if: vars.PUBLISH_TO_CRATES_IO == 'true'
+    runs-on: ubuntu-latest
+    environment: release
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: rust-lang/crates-io-auth-action@v1
+        id: auth
+      - run: cargo publish --locked
+        env:
+          CARGO_REGISTRY_TOKEN: ${{{{ steps.auth.outputs.token }}}}
+
+  build-binaries:
+    name: Build ${{{{ matrix.target }}}}
+    needs: validate
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-24.04
+            target: x86_64-unknown-linux-gnu
+            archive: tar
+          - runner: ubuntu-24.04-arm
+            target: aarch64-unknown-linux-gnu
+            archive: tar
+          - runner: macos-15-intel
+            target: x86_64-apple-darwin
+            archive: tar
+          - runner: macos-14
+            target: aarch64-apple-darwin
+            archive: tar
+          - runner: windows-2025
+            target: x86_64-pc-windows-msvc
+            archive: zip
+    runs-on: ${{{{ matrix.runner }}}}
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{{{ matrix.target }}}}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{{{ matrix.target }}}}
+      - run: cargo build --release --locked --bin {generated_cli_product_name} --target "${{{{ matrix.target }}}}"
+        if: matrix.archive == 'tar'
+      - name: Archive Unix binary
+        if: matrix.archive == 'tar'
+        run: |
+          mkdir -p dist
+          cp "target/${{{{ matrix.target }}}}/release/{generated_cli_product_name}" dist/
+          cp README.md dist/
+          [ -f LICENSE ] && cp LICENSE dist/
+          tar -czf "{generated_cli_product_name}-${{{{ github.ref_name }}}}-${{{{ matrix.target }}}}.tar.gz" -C dist .
+      - name: Build Windows binary
+        if: matrix.archive == 'zip'
+        shell: pwsh
+        run: cargo build --release --locked --bin {generated_cli_product_name} --target "${{{{ matrix.target }}}}"
+      - name: Archive Windows binary
+        if: matrix.archive == 'zip'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path dist
+          Copy-Item "target/${{{{ matrix.target }}}}/release/{generated_cli_product_name}.exe" dist/
+          Copy-Item README.md dist/
+          if (Test-Path LICENSE) {{ Copy-Item LICENSE dist/ }}
+          Compress-Archive -Path dist/* -DestinationPath "{generated_cli_product_name}-$env:GITHUB_REF_NAME-${{{{ matrix.target }}}}.zip"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: {generated_cli_product_name}-${{{{ matrix.target }}}}
+          path: {generated_cli_product_name}-${{{{ github.ref_name }}}}-${{{{ matrix.target }}}}.*
+          if-no-files-found: error
+
+  github-release:
+    name: Publish GitHub release
+    needs: build-binaries
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v5
+        with:
+          pattern: {generated_cli_product_name}-*
+          path: artifacts
+          merge-multiple: true
+      - name: Create checksums
+        working-directory: artifacts
+        run: sha256sum {generated_cli_product_name}-* > SHA256SUMS
+      - name: Create or update release
+        env:
+          GH_TOKEN: ${{{{ github.token }}}}
+          GH_REPO: ${{{{ github.repository }}}}
+        run: |
+          if gh release view "${{GITHUB_REF_NAME}}" >/dev/null 2>&1; then
+            gh release upload "${{GITHUB_REF_NAME}}" artifacts/* --clobber
+          else
+            gh release create "${{GITHUB_REF_NAME}}" artifacts/* --verify-tag --generate-notes
+          fi
+"#
+    )
+}
+
 pub fn render_generated_cli_readme_source_file(
     generated_cli_product_name: &str,
     cli_behavior_extracted_from_openapi_spec: &tokyo_ir::cli_behavior::CliBehavior,
@@ -272,7 +425,7 @@ initial scaffold:
   appear in `start`, `--help`, and `schema --command` detail;
 - `src/presentation.rs` — restyle help, colors, banners, and ordering for the
   whole command tree;
-- `.cursor/skills/**` — teach coding agents Tokyo's project workflows and your
+- `.skills/**` — teach coding agents Tokyo's project workflows and your
   application-specific practices.
 
 `src/commands/custom.rs` remains as a user-owned compatibility hook for older

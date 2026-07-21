@@ -80,6 +80,7 @@ const RUNTIME_CONFIG: tokyo_cli_runtime::RuntimeConfig = tokyo_cli_runtime::Runt
         repository: "tokyo-corp/tokyo",
         asset_prefix: "tokyo",
         current_version: env!("CARGO_PKG_VERSION"),
+        check_interval: std::time::Duration::from_secs(24 * 60 * 60),
     }),
 };
 

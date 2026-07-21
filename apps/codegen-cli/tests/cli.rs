@@ -107,24 +107,27 @@ fn init_scaffolds_a_compilable_route_only_project() {
         "Cargo.toml",
         "README.md",
         "tokyo.toml",
+        ".github/workflows/release.yml",
         ".tokyo/src/main.rs",
         ".tokyo/src/cli.rs",
         ".tokyo/src/tokyo/routes.rs",
         "src/middleware.rs",
         "src/routes/mod.rs",
         "src/routes/index.rs",
-        ".cursor/skills/tokyo-project-layout/SKILL.md",
-        ".cursor/skills/tokyo-filesystem-routes/SKILL.md",
-        ".cursor/skills/tokyo-agent-discovery/SKILL.md",
-        ".cursor/skills/tokyo-scripting-protocol/SKILL.md",
-        ".cursor/skills/tokyo-auth-profiles/SKILL.md",
-        ".cursor/skills/tokyo-achieve-outcomes/SKILL.md",
-        ".cursor/skills/tokyo-scenarios-run/SKILL.md",
-        ".cursor/skills/tokyo-request-bodies/SKILL.md",
-        ".cursor/skills/tokyo-streaming-binary/SKILL.md",
-        ".cursor/skills/tokyo-openapi-lifecycle/SKILL.md",
-        ".cursor/skills/tokyo-project-config/SKILL.md",
-        ".cursor/skills/tokyo-guidance-presentation/SKILL.md",
+        ".skills/tokyo-getting-started/SKILL.md",
+        ".skills/tokyo-project-layout/SKILL.md",
+        ".skills/tokyo-filesystem-routes/SKILL.md",
+        ".skills/tokyo-agent-discovery/SKILL.md",
+        ".skills/tokyo-scripting-protocol/SKILL.md",
+        ".skills/tokyo-auth-profiles/SKILL.md",
+        ".skills/tokyo-achieve-outcomes/SKILL.md",
+        ".skills/tokyo-scenarios-run/SKILL.md",
+        ".skills/tokyo-request-bodies/SKILL.md",
+        ".skills/tokyo-streaming-binary/SKILL.md",
+        ".skills/tokyo-openapi-lifecycle/SKILL.md",
+        ".skills/tokyo-project-config/SKILL.md",
+        ".skills/tokyo-guidance-presentation/SKILL.md",
+        ".skills/tokyo-deployment/SKILL.md",
     ] {
         assert!(project.join(path).is_file(), "missing {path}");
     }
@@ -492,8 +495,8 @@ fn route_extension_starters_are_user_owned() {
     let middleware = output.join("src/middleware.rs");
     let manifest_file = output.join("Cargo.toml");
     let readme = output.join("README.md");
-    let project_layout_skill = output.join(".cursor/skills/tokyo-project-layout/SKILL.md");
-    let routes_skill = output.join(".cursor/skills/tokyo-filesystem-routes/SKILL.md");
+    let project_layout_skill = output.join(".skills/tokyo-project-layout/SKILL.md");
+    let routes_skill = output.join(".skills/tokyo-filesystem-routes/SKILL.md");
     assert!(custom.is_file());
     assert!(middleware.is_file());
     assert!(manifest_file.is_file());
@@ -530,7 +533,7 @@ fn route_extension_starters_are_user_owned() {
             .as_array()
             .unwrap()
             .iter()
-            .any(|path| path == ".cursor/skills/tokyo-project-layout/SKILL.md")
+            .any(|path| path == ".skills/tokyo-project-layout/SKILL.md")
     );
 
     let local_custom = "pub fn local_custom_marker() {}\n";

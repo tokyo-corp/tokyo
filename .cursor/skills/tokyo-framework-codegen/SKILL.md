@@ -14,7 +14,7 @@ description: Guides changes to Tokyo project scaffolding, route discovery, gener
 
 - Managed output lives under `.tokyo/**`; `.tokyo/manifest.json` records managed files and SHA-256 hashes.
 - Preserve legacy reads from `.tokyo-manifest.json` and `.tokyo-ir.json` when changing migration behavior.
-- Never overwrite or hash `tokyo_emit_cli::UNMANAGED_STARTER_FILES`: `.cursor/skills/**`, `src/commands/{mod,custom,guidance}.rs`, `src/middleware.rs`, and `src/presentation.rs`.
+- Never overwrite or hash `tokyo_emit_cli::UNMANAGED_STARTER_FILES`: `.skills/**`, `.github/workflows/release.yml`, `src/commands/{mod,custom,guidance}.rs`, `src/middleware.rs`, and `src/presentation.rs`.
 - Preserve `Cargo.toml`, `README.md`, and `src/routes/**` as user-owned. Generated `.tokyo/src/tokyo/routes.rs` may register and dispatch discovered routes.
 - Keep generation fail-closed for hand-edited managed files, remove only stale manifest-listed files, and leave unlisted files untouched.
 - Update scaffold and ownership tests whenever a path changes; do not update generated output by hand.

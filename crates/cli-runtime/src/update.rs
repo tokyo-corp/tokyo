@@ -6,7 +6,6 @@
 use std::io::Read as _;
 use std::time::Duration;
 
-const CHECK_INTERVAL: Duration = Duration::from_secs(24 * 60 * 60);
 const MANIFEST_TIMEOUT: Duration = Duration::from_millis(1500);
 const DOWNLOAD_TIMEOUT: Duration = Duration::from_secs(20);
 const MAX_DOWNLOAD_BYTES: u64 = 200 * 1024 * 1024;
@@ -48,14 +47,14 @@ pub fn check_and_apply() {
     if std::env::var_os(format!("{env_prefix}_NO_UPDATE_NOTIFIER")).is_some() {
         return;
     }
-    if !should_check_now() {
+    if !should_check_now(update_config.check_interval) {
         return;
     }
     record_check_time();
     let _ = try_update(&update_config);
 }
 
-fn should_check_now() -> bool {
+fn should_check_now(check_interval: Duration) -> bool {
     let Ok(config_directory) = crate::profile::cli_runtime_config_directory() else {
         return false;
     };
@@ -63,7 +62,7 @@ fn should_check_now() -> bool {
     match std::fs::metadata(&timestamp_path).and_then(|metadata| metadata.modified()) {
         Ok(modified_at) => modified_at
             .elapsed()
-            .is_ok_and(|elapsed| elapsed >= CHECK_INTERVAL),
+            .is_ok_and(|elapsed| elapsed >= check_interval),
         Err(_) => true,
     }
 }

@@ -544,14 +544,14 @@ fn assert_fixture(fixture: &str) {
 #[test]
 fn project_skills_are_unmanaged_starters() {
     let skills = tokyo_emit_cli::project_skill_starter_files();
-    assert_eq!(skills.len(), 12);
+    assert_eq!(skills.len(), 14);
     for skill in skills {
         assert!(
             tokyo_emit_cli::UNMANAGED_STARTER_FILES.contains(&skill.relative_path.as_str()),
             "{} must remain scaffold-once",
             skill.relative_path
         );
-        assert!(skill.relative_path.starts_with(".cursor/skills/tokyo-"));
+        assert!(skill.relative_path.starts_with(".skills/tokyo-"));
         assert!(skill.relative_path.ends_with("/SKILL.md"));
         assert!(skill.contents.starts_with("---\nname: tokyo-"));
         assert!(!skill.contents.contains("disable-model-invocation"));

@@ -25,9 +25,9 @@ fn examples_match_cli_goldens() {
 #[test]
 fn route_extensions_and_legacy_custom_commands_are_wired() {
     let files = emit_fixture("petstore.yaml");
-    let cli = generated_contents(&files, "src/cli.rs");
+    let cli = generated_contents(&files, ".tokyo/src/cli.rs");
     let custom = generated_contents(&files, "src/commands/custom.rs");
-    let main = generated_contents(&files, "src/main.rs");
+    let main = generated_contents(&files, ".tokyo/src/main.rs");
     let middleware = generated_contents(&files, "src/middleware.rs");
 
     assert!(cli.contains("pub struct CommandContext<'a>"), "{cli}");
@@ -53,12 +53,12 @@ fn route_extensions_and_legacy_custom_commands_are_wired() {
 #[test]
 fn typed_primitives_render_for_serde_and_clap() {
     let files = emit_fixture("cli-types.yaml");
-    let types = generated_contents(&files, "src/tokyo/types.rs");
+    let types = generated_contents(&files, ".tokyo/src/tokyo/types.rs");
     assert!(types.contains("pub id: uuid::Uuid"));
     assert!(types.contains("pub occurred_at: chrono::DateTime<chrono::Utc>"));
     assert!(types.contains("pub local_date: chrono::NaiveDate"));
 
-    let commands = generated_contents(&files, "src/tokyo/commands/events.rs");
+    let commands = generated_contents(&files, ".tokyo/src/tokyo/commands/events.rs");
     assert!(commands.contains("event_id: uuid::Uuid"));
     assert!(commands.contains("since: Option<chrono::DateTime<chrono::Utc>>"));
     assert!(commands.contains("x_report_date: Option<chrono::NaiveDate>"));
@@ -72,7 +72,7 @@ fn typed_primitives_render_for_serde_and_clap() {
 #[test]
 fn schema_and_structured_body_modes_render_for_generated_commands() {
     let cli_coverage = emit_fixture("cli-coverage.yaml");
-    let cli = generated_contents(&cli_coverage, "src/cli.rs");
+    let cli = generated_contents(&cli_coverage, ".tokyo/src/cli.rs");
     assert!(cli.contains(r#"\"aliases\": ["#));
     assert!(cli.contains(r#"\"list\""#));
     assert!(cli.contains(r#"\"invocation\": \"items ls\""#));
@@ -80,7 +80,7 @@ fn schema_and_structured_body_modes_render_for_generated_commands() {
     assert!(cli.contains(r#"\"schema_version\": 10"#));
 
     let serialization = emit_fixture("serialization.yaml");
-    let commands = generated_contents(&serialization, "src/tokyo/commands/default.rs");
+    let commands = generated_contents(&serialization, ".tokyo/src/tokyo/commands/default.rs");
     assert!(commands.contains("long = \"body-json\""));
     assert!(commands.contains("short = 'f'"));
     assert!(
@@ -88,7 +88,7 @@ fn schema_and_structured_body_modes_render_for_generated_commands() {
             .contains("tokyo_cli_runtime::body::parse_json_request_body_from_field_assignments")
     );
 
-    let api_cli = generated_contents(&serialization, "src/cli.rs");
+    let api_cli = generated_contents(&serialization, ".tokyo/src/cli.rs");
     assert!(api_cli.contains("body_json: Option<String>"));
     assert!(api_cli.contains("body_fields: Vec<String>"));
 }
@@ -114,8 +114,8 @@ fn named_environments_and_default_url_render_into_connection_profiles() {
     );
 
     let files = tokyo_emit_cli::emit_generated_cli_project_files(&api);
-    let cli = generated_contents(&files, "src/cli.rs");
-    let config = generated_contents(&files, "src/tokyo/config.rs");
+    let cli = generated_contents(&files, ".tokyo/src/cli.rs");
+    let config = generated_contents(&files, ".tokyo/src/tokyo/config.rs");
 
     assert!(cli.contains("pub environment: Option<String>"));
     assert!(cli.contains("ProfileCommand"));
@@ -144,8 +144,8 @@ fn embedded_scenarios_render_into_config_program_and_schema() {
         });
 
     let files = tokyo_emit_cli::emit_generated_cli_project_files(&api);
-    let cli = generated_contents(&files, "src/cli.rs");
-    let config = generated_contents(&files, "src/tokyo/config.rs");
+    let cli = generated_contents(&files, ".tokyo/src/cli.rs");
+    let config = generated_contents(&files, ".tokyo/src/tokyo/config.rs");
 
     assert!(config.contains(r#"name: "smoke""#), "{config}");
     assert!(config.contains(r#"body: "pets list\n""#), "{config}");
@@ -202,9 +202,9 @@ fn interactive_oauth_provider_renders_through_the_oauth2_adapter() {
     );
 
     let files = tokyo_emit_cli::emit_generated_cli_project_files(&api);
-    let config = generated_contents(&files, "src/tokyo/config.rs");
-    let cli = generated_contents(&files, "src/cli.rs");
-    let commands = generated_contents(&files, "src/tokyo/commands/default.rs");
+    let config = generated_contents(&files, ".tokyo/src/tokyo/config.rs");
+    let cli = generated_contents(&files, ".tokyo/src/cli.rs");
+    let commands = generated_contents(&files, ".tokyo/src/tokyo/commands/default.rs");
     let manifest = generated_contents(&files, "Cargo.toml");
 
     assert!(config.contains(r#"scheme: "bearerAuth""#));
@@ -259,8 +259,8 @@ fn browser_token_provider_renders_into_runtime_config_and_program() {
     );
 
     let files = tokyo_emit_cli::emit_generated_cli_project_files(&api);
-    let config = generated_contents(&files, "src/tokyo/config.rs");
-    let cli = generated_contents(&files, "src/cli.rs");
+    let config = generated_contents(&files, ".tokyo/src/tokyo/config.rs");
+    let cli = generated_contents(&files, ".tokyo/src/cli.rs");
     let readme = generated_contents(&files, "README.md");
     assert!(config.contains("OAuthEndpoints::BrowserToken"));
     assert!(config.contains(r#"validation_url: "https://api.dev.example.test/me""#));
@@ -329,8 +329,8 @@ paths:
         });
 
     let files = tokyo_emit_cli::emit_generated_cli_project_files(&api);
-    let commands = generated_contents(&files, "src/tokyo/commands/orders.rs");
-    let cli = generated_contents(&files, "src/cli.rs");
+    let commands = generated_contents(&files, ".tokyo/src/tokyo/commands/orders.rs");
+    let cli = generated_contents(&files, ".tokyo/src/cli.rs");
     assert!(commands.contains("ProviderOrder"));
     assert!(commands.contains("ShipperOrder"));
     assert!(commands.contains("Expanded"));
@@ -447,7 +447,7 @@ paths:
     let api = tokyo_import_openapi::import_openapi_yaml_document(source)
         .expect("v4 wire fixture should import");
     let files = tokyo_emit_cli::emit_generated_cli_project_files(&api);
-    let commands = generated_contents(&files, "src/tokyo/commands/widgets.rs");
+    let commands = generated_contents(&files, ".tokyo/src/tokyo/commands/widgets.rs");
 
     assert!(commands.contains("ParameterStyle::LabelExplode"));
     assert!(commands.contains("ParameterStyle::Simple"));
@@ -487,7 +487,7 @@ paths:
     let api = tokyo_import_openapi::import_openapi_yaml_document(source)
         .expect("schema fixture should import");
     let files = tokyo_emit_cli::emit_generated_cli_project_files(&api);
-    let cli = generated_contents(&files, "src/cli.rs");
+    let cli = generated_contents(&files, ".tokyo/src/cli.rs");
 
     assert!(cli.contains("json_schema: bool"));
     assert!(cli.contains("render_json_schema"));

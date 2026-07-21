@@ -44,4 +44,4 @@ Help templates, colors, styles, banners, about text, argument help, and ordering
 - Human help, colors, and table rendering must not alter `--output json` or `json-raw`.
 - Machine JSON shape, structured stderr errors, and exit codes are scripting and agent contracts.
 - Do not add normal progress or branding output to stdout for machine, streaming, or binary commands.
-- Both files survive regeneration; never copy these changes into `src/tokyo/**` or `src/cli.rs`.
+- Both files survive regeneration; never copy these changes into `.tokyo/**`.

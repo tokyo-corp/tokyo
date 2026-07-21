@@ -66,7 +66,7 @@ fn typed_primitives_render_for_serde_and_clap() {
     let manifest = generated_contents(&files, "Cargo.toml");
     assert!(manifest.contains(r#"chrono = { version = "0.4.42", features = ["serde"] }"#));
     assert!(manifest.contains(r#"uuid = { version = "1.18.1", features = ["serde"] }"#));
-    assert!(manifest.contains(r#"tokyo-cli-runtime = "=0.1.1""#));
+    assert!(manifest.contains(r#"tokyo-cli-runtime = "=0.1.2""#));
 }
 
 #[test]
@@ -222,7 +222,7 @@ fn interactive_oauth_provider_renders_through_the_oauth2_adapter() {
     assert!(commands.contains("[public]"));
     assert!(commands.contains("[authentication optional]"));
     assert!(commands.contains("[authentication required]"));
-    assert!(manifest.contains(r#"tokyo-cli-runtime = "=0.1.1""#));
+    assert!(manifest.contains(r#"tokyo-cli-runtime = "=0.1.2""#));
 }
 
 #[test]

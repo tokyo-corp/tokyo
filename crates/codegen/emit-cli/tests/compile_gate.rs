@@ -799,11 +799,26 @@ fn serve_once(
             .set_read_timeout(Some(Duration::from_secs(30)))
             .expect("capture stream timeout should configure");
         let mut request = Vec::new();
+        let read_deadline = Instant::now() + Duration::from_secs(30);
         loop {
             let mut chunk = [0_u8; 8192];
-            let read = stream
-                .read(&mut chunk)
-                .unwrap_or_else(|error| panic!("capture server failed reading request: {error}"));
+            let read = match stream.read(&mut chunk) {
+                Ok(read) => read,
+                Err(error)
+                    if matches!(
+                        error.kind(),
+                        std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
+                    ) =>
+                {
+                    assert!(
+                        Instant::now() < read_deadline,
+                        "capture server timed out reading request"
+                    );
+                    thread::sleep(Duration::from_millis(10));
+                    continue;
+                }
+                Err(error) => panic!("capture server failed reading request: {error}"),
+            };
             if read == 0 {
                 break;
             }

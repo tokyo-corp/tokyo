@@ -50,7 +50,7 @@ jobs:
       - run: cargo test --workspace --locked
 
   cross-platform-tests:
-    name: Cross-platform tests (${{ matrix.os }})
+    name: Cross-platform runtime tests (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     timeout-minutes: 25
     strategy:
@@ -61,12 +61,13 @@ jobs:
       - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@1.97.1
       - uses: Swatinem/rust-cache@v2
-      # Excludes the tokyo-cli app: its integration tests drive real
-      # cargo/git/gh through unix-only stub scripts (which fail with OS error
-      # 193 on Windows). This still covers tokyo-cli-runtime — the crate that
-      # ships into every generated CLI, including its `#[cfg(windows)]`
-      # self-update path — plus all codegen library crates on both platforms.
-      - run: cargo test --workspace --exclude tokyo-cli --locked
+      # tokyo-cli-runtime is the crate that ships into every generated CLI and
+      # holds the only OS-specific runtime code (the `#[cfg(windows)]`
+      # self-update path), so it is what needs per-OS coverage. The codegen
+      # crates are platform-independent Rust; their test *fixtures* are not yet
+      # Windows-clean (LF/CRLF golden files, unix-only cargo/git/gh stub
+      # scripts), which is separate hardening tracked apart from this job.
+      - run: cargo test -p tokyo-cli-runtime --locked
 
   cargo-deny:
     name: cargo-deny (advisories, licenses, bans, sources)

@@ -1,0 +1,21 @@
+[package]
+name = "tokyo-ir"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+publish.workspace = true
+description = "Normalized intermediate representation for Tokyo CLI generation"
+keywords = ["cli", "codegen", "openapi"]
+categories = ["development-tools"]
+
+[dependencies]
+serde = { workspace = true, features = ["derive"] }
+serde_json.workspace = true
+
+[dev-dependencies]
+
+[lints]
+workspace = true

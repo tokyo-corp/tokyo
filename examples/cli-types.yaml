@@ -1,0 +1,68 @@
+openapi: 3.1.0
+info:
+  title: CLI typed primitives
+  version: "1.0.0"
+
+components:
+  schemas:
+    Event:
+      type: object
+      required: [id, occurredAt, localDate]
+      properties:
+        id:
+          type: string
+          format: uuid
+        occurredAt:
+          type: string
+          format: date-time
+        localDate:
+          type: string
+          format: date
+
+paths:
+  /events:
+    post:
+      operationId: createEvent
+      tags: [Events]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/Event"
+      responses:
+        "200":
+          description: Created event
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Event"
+
+  /events/{eventId}:
+    get:
+      operationId: getEvent
+      tags: [Events]
+      parameters:
+        - name: eventId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: since
+          in: query
+          schema:
+            type: string
+            format: date-time
+        - name: X-Report-Date
+          in: header
+          schema:
+            type: string
+            format: date
+      responses:
+        "200":
+          description: Event
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Event"

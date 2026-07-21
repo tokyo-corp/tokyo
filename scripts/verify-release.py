@@ -33,17 +33,20 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "--tag",
-        default=os.environ.get("GITHUB_REF_NAME"),
-        help="release tag; defaults to GITHUB_REF_NAME",
+        default=None,
+        help="release tag; defaults to GITHUB_REF_NAME when GITHUB_REF_TYPE is 'tag'",
     )
     args = parser.parse_args()
+    tag = args.tag
+    if tag is None and os.environ.get("GITHUB_REF_TYPE") == "tag":
+        tag = os.environ.get("GITHUB_REF_NAME")
 
     with (ROOT / "Cargo.toml").open("rb") as manifest:
         workspace = tomllib.load(manifest)
     version = workspace["workspace"]["package"]["version"]
     expected_tag = f"v{version}"
-    if args.tag and args.tag != expected_tag:
-        fail(f"tag {args.tag!r} does not match workspace version {version!r}")
+    if tag and tag != expected_tag:
+        fail(f"tag {tag!r} does not match workspace version {version!r}")
 
     metadata = json.loads(
         subprocess.check_output(

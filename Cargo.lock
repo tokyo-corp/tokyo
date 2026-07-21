@@ -1923,6 +1923,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "tokyo-cli"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "heck",
+ "notify",
+ "notify-debouncer-mini",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tokyo-codegen-engine",
+ "tokyo-emit-cli",
+ "tokyo-ir",
+ "toml",
+ "yaml_serde",
+]
+
+[[package]]
 name = "tokyo-cli-runtime"
 version = "0.1.0"
 dependencies = [
@@ -1940,26 +1960,6 @@ dependencies = [
  "ureq",
  "url",
  "webbrowser",
-]
-
-[[package]]
-name = "tokyo-codegen"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "clap",
- "heck",
- "notify",
- "notify-debouncer-mini",
- "reqwest",
- "serde",
- "serde_json",
- "sha2",
- "tokyo-codegen-engine",
- "tokyo-emit-cli",
- "tokyo-ir",
- "toml",
- "yaml_serde",
 ]
 
 [[package]]

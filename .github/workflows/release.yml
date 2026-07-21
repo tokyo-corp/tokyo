@@ -38,7 +38,7 @@ jobs:
           -p tokyo-import-openapi
           -p tokyo-codegen-engine
           -p tokyo-emit-cli
-          -p tokyo-codegen
+          -p tokyo-cli
 
   publish-crates:
     name: Publish crates.io packages
@@ -90,7 +90,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           key: ${{ matrix.target }}
-      - run: cargo build --release --locked -p tokyo-codegen --bin tokyo --target "${{ matrix.target }}"
+      - run: cargo build --release --locked -p tokyo-cli --bin tokyo --target "${{ matrix.target }}"
         if: matrix.archive == 'tar'
       - name: Archive Unix binary
         if: matrix.archive == 'tar'
@@ -102,7 +102,7 @@ jobs:
       - name: Build Windows binary
         if: matrix.archive == 'zip'
         shell: pwsh
-        run: cargo build --release --locked -p tokyo-codegen --bin tokyo --target "${{ matrix.target }}"
+        run: cargo build --release --locked -p tokyo-cli --bin tokyo --target "${{ matrix.target }}"
       - name: Archive Windows binary
         if: matrix.archive == 'zip'
         shell: pwsh

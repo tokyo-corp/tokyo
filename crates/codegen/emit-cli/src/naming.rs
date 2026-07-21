@@ -67,9 +67,48 @@ fn sanitize_package_name_component(name: &str, fallback: &str) -> String {
 /// `match`, ...) as a raw identifier rather than renaming. Raw identifiers need
 /// no registry entry and can't collide with anything else.
 pub fn rust_identifier(name: &str) -> syn::Ident {
-    syn::parse_str::<syn::Ident>(name).unwrap_or_else(|_| {
-        syn::parse_str::<syn::Ident>(&format!("r#{name}")).expect("raw identifier")
-    })
+    if let Ok(ident) = syn::parse_str::<syn::Ident>(name) {
+        return ident;
+    }
+    if let Ok(raw) = syn::parse_str::<syn::Ident>(&format!("r#{name}")) {
+        return raw;
+    }
+    // A raw identifier only rescues keywords; a digit-leading, empty, or
+    // punctuation-only name (e.g. a string enum value `"1"`) still fails to
+    // parse and previously aborted generation. Wire values are preserved
+    // independently via `#[serde(rename)]`/`#[value(name)]`, so sanitizing the
+    // Rust identifier here is lossless on the wire.
+    let sanitized = sanitize_to_rust_identifier(name);
+    syn::parse_str::<syn::Ident>(&sanitized)
+        .unwrap_or_else(|_| syn::parse_str::<syn::Ident>("_field").expect("valid identifier"))
+}
+
+/// Rewrites an arbitrary string into a syntactically valid, non-keyword Rust
+/// identifier: non-`[A-Za-z0-9_]` characters become `_`, a leading digit (or an
+/// empty string) gets an underscore prefix, and an all-underscore result falls
+/// back to a stable placeholder.
+fn sanitize_to_rust_identifier(name: &str) -> String {
+    let mut result: String = name
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '_' {
+                c
+            } else {
+                '_'
+            }
+        })
+        .collect();
+    let needs_prefix = match result.chars().next() {
+        None => true,
+        Some(first) => first.is_ascii_digit(),
+    };
+    if needs_prefix {
+        result.insert(0, '_');
+    }
+    if result.chars().all(|c| c == '_') {
+        result.push_str("field");
+    }
+    result
 }
 
 /// Maps every declared type's [`TypeId`] to the Rust identifier it should
@@ -131,5 +170,23 @@ mod tests {
         let names = derive_package_and_command_names("generated-cli");
         assert_eq!(names.cargo_package, "generated-cli");
         assert_eq!(names.command, "generated-cli");
+    }
+
+    #[test]
+    fn keyword_names_use_raw_identifiers() {
+        assert_eq!(rust_identifier("type").to_string(), "r#type");
+    }
+
+    #[test]
+    fn invalid_names_are_sanitized_instead_of_aborting_generation() {
+        // A digit-leading string enum value like `"1"` can't be a raw
+        // identifier and previously panicked/aborted the whole run.
+        assert_eq!(rust_identifier("1").to_string(), "_1");
+        assert_eq!(rust_identifier("2abc").to_string(), "_2abc");
+        assert_eq!(rust_identifier("foo-bar").to_string(), "foo_bar");
+        // Empty and punctuation-only names must still produce a valid
+        // identifier; constructing the `Ident` at all proves it parsed.
+        assert!(!rust_identifier("").to_string().is_empty());
+        assert!(!rust_identifier("!!!").to_string().is_empty());
     }
 }

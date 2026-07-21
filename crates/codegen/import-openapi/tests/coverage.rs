@@ -21,6 +21,20 @@ fn unsupported(fragment: &str, expected: &str) {
 }
 
 #[test]
+fn rejects_cyclic_schema_references_without_crashing() {
+    // A `$ref` cycle previously recursed until the process aborted on a stack
+    // overflow; it must now surface as a clean, catchable import error.
+    unsupported(
+        "components:\n  schemas:\n    A:\n      $ref: '#/components/schemas/B'\n    B:\n      $ref: '#/components/schemas/A'\n",
+        "cyclic schema reference",
+    );
+    unsupported(
+        "components:\n  schemas:\n    A:\n      $ref: '#/components/schemas/A'\n",
+        "cyclic schema reference",
+    );
+}
+
+#[test]
 fn imports_coverage_fixture_into_typed_behavior() {
     let api = tokyo_import_openapi::import_openapi_yaml_document(include_str!(
         "../../../../examples/openapi-coverage.yaml"

@@ -142,7 +142,7 @@ pub fn declare_openapi_component_schemas_as_ir_types(ctx: &mut Context) -> Resul
 
     for (name, schema) in components.schemas.iter() {
         let type_id = ctx.component_type_id(name);
-        let resolved = schema.resolve(ctx.spec)?;
+        let resolved = resolve_schema_without_ref_cycles(ctx.spec, schema)?;
         let object_schema = match &resolved {
             Schema::Object(obj_or_ref) => match obj_or_ref.as_ref() {
                 ObjectOrReference::Object(schema) => schema.clone(),
@@ -157,6 +157,45 @@ pub fn declare_openapi_component_schemas_as_ir_types(ctx: &mut Context) -> Resul
     }
 
     Ok(())
+}
+
+/// Resolves a schema's `$ref` chain to a concrete object/boolean schema while
+/// rejecting reference cycles. `oas3`'s own `Schema::resolve` follows `$ref`
+/// links recursively with no visited-set, so a cyclic component reference
+/// (`A` → `B` → `A`, or a self-reference) recurses until the process aborts on
+/// a stack overflow. A cycle can't be represented as a generated Rust type
+/// regardless, so return a clean error instead of crashing. Only schema
+/// references are supported, mirroring `convert_openapi_schema_to_ir_type_ref`.
+fn resolve_schema_without_ref_cycles(spec: &Spec, schema: &Schema) -> Result<Schema, ImportError> {
+    let mut visited: HashSet<String> = HashSet::new();
+    let mut current = schema.clone();
+    loop {
+        let Schema::Object(obj_or_ref) = &current else {
+            return Ok(current);
+        };
+        let ref_path = match obj_or_ref.as_ref() {
+            ObjectOrReference::Object(_) => return Ok(current),
+            ObjectOrReference::Ref { ref_path, .. } => ref_path.clone(),
+        };
+        if !visited.insert(ref_path.clone()) {
+            return Err(ImportError::Unsupported(format!(
+                "cyclic schema reference `{ref_path}`: $ref cycles cannot be represented as generated types; break the cycle before importing"
+            )));
+        }
+        let name = ref_path.strip_prefix("#/components/schemas/").ok_or_else(|| {
+            ImportError::Unsupported(format!(
+                "external or unsupported schema reference `{ref_path}`; bundle external references before importing"
+            ))
+        })?;
+        current = spec
+            .components
+            .as_ref()
+            .and_then(|components| components.schemas.get(name))
+            .cloned()
+            .ok_or_else(|| {
+                ImportError::Unsupported(format!("unresolvable schema reference `{ref_path}`"))
+            })?;
+    }
 }
 
 /// Converts any inline or referenced schema into a `TypeRef` usable wherever a

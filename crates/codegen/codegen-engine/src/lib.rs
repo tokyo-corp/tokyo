@@ -290,9 +290,12 @@ pub fn import_openapi_text(
                     |_| tokyo_import_openapi::import_openapi_yaml_document(openapi_input_text),
                 )
             } else {
-                tokyo_import_openapi::import_openapi_yaml_document(openapi_input_text).or_else(
-                    |_| tokyo_import_openapi::import_openapi_json_document(openapi_input_text),
-                )
+                // JSON documents always start with `{`/`[`, so input that
+                // reaches here is never JSON. YAML is a JSON superset, so a
+                // JSON fallback could only ever replace a meaningful YAML or
+                // semantic import error (e.g. a rejected cyclic `$ref`) with a
+                // misleading "not JSON" parse error.
+                tokyo_import_openapi::import_openapi_yaml_document(openapi_input_text)
             }
         }
     }

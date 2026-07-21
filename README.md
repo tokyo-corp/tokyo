@@ -1,6 +1,6 @@
 # Tokyo
 
-We think that CLIs are the future of how AI agents will interact with APIs, but (as people that have made CLIs) building a good agent-friendly CLI has some tricky parts to it. So we made TOkyo, which is a route-first Rust framework for deterministic CLIs designed for agents. 
+We think that CLIs are the future of how AI agents will interact with APIs, but (as people that have made CLIs) building a good agent-friendly CLI has some tricky parts to it. So we made Tokyo, which is a route-first Rust framework for CLIs designed for agents. It's like Nextjs but for CLIs.
 
 Filesystem routes work on their own; OpenAPI 3.0/3.1 is an optional source of additional generated commands.
 

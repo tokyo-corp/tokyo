@@ -305,7 +305,14 @@ impl CredentialStore for KeychainFirstStore {
                     return Ok(None);
                 };
                 match entry.set_password(&value).map_err(classify_keychain) {
-                    Ok(()) => Ok(Some(value)),
+                    Ok(()) => {
+                        // Migration succeeded: drop the plaintext fallback copy
+                        // so the secret lives only in the keychain, not in both
+                        // stores. Best-effort — a failed cleanup just leaves the
+                        // prior (already-present) fallback entry in place.
+                        let _ = self.fallback.delete_credential_secret(profile, scheme);
+                        Ok(Some(value))
+                    }
                     Err(KeychainError::Unavailable(_)) => {
                         self.fallback(|store| store.get_credential_secret(profile, scheme))
                     }

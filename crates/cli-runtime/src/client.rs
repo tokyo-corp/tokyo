@@ -243,7 +243,7 @@ impl Client {
         debug: bool,
     ) -> Self {
         Self {
-            agent: ureq::Agent::new(),
+            agent: build_api_http_agent(),
             base_url,
             token,
             client_id,
@@ -806,6 +806,10 @@ impl Client {
                     "invalid OAuth2 token endpoint {token_endpoint:?}: {error}"
                 ))
             })?;
+        // Enforce the same transport guarantees as the interactive OAuth flows:
+        // the endpoint must be https (loopback http excepted), so the
+        // client_secret is never sent in cleartext.
+        crate::oauth::validate_oauth_endpoint_url(token_url.as_str())?;
         let cache_scheme = oauth_client_credentials_cache_scheme(
             &self.profile,
             scheme_name,
@@ -831,7 +835,12 @@ impl Client {
         if !scope.is_empty() {
             form.push(("scope", scope.as_str()));
         }
-        let result = self.agent.post(token_url.as_str()).send_form(&form);
+        // Use a no-redirect agent (like the other OAuth flows): a 307/308 on
+        // the token endpoint would otherwise resend the client_secret body to
+        // the redirect target.
+        let result = crate::oauth::oauth_http_agent()
+            .post(token_url.as_str())
+            .send_form(&form);
         let response = match result {
             Ok(response) => response,
             Err(ureq::Error::Status(status, _)) => {
@@ -876,6 +885,20 @@ impl Client {
             .save_credential_secret(&self.profile, &cache_scheme, &encoded)?;
         Ok(access_token)
     }
+}
+
+/// Builds the agent used for every generated API request. Unlike a bare
+/// `ureq::Agent::new()`, this pins two security-relevant behaviors explicitly
+/// rather than relying on library defaults: a connect timeout so an
+/// unreachable/black-holed host can't hang the CLI indefinitely, and
+/// `RedirectAuthHeaders::Never` so the `Authorization` header is never replayed
+/// to a redirect target. Read/write are left unbounded so long-lived streaming
+/// responses (SSE/NDJSON) are not cut off.
+fn build_api_http_agent() -> ureq::Agent {
+    ureq::AgentBuilder::new()
+        .timeout_connect(std::time::Duration::from_secs(30))
+        .redirect_auth_headers(ureq::RedirectAuthHeaders::Never)
+        .build()
 }
 
 fn send_prepared_http_request(
@@ -2042,6 +2065,25 @@ mod auth_tests {
             .fetch_client_credentials_token("machineOAuth", endpoint, &["read"])
             .unwrap();
         assert_eq!(token, "cached");
+    }
+
+    #[test]
+    fn client_credentials_rejects_cleartext_non_loopback_token_endpoint() {
+        // A client_secret must never be POSTed over cleartext http to a
+        // non-loopback host; validation runs before any cache/network use.
+        let store = Arc::new(MemoryStore::default());
+        let client = oauth_client("https://api.example.test".to_string(), store, 1_000);
+        let error = client
+            .fetch_client_credentials_token(
+                "machineOAuth",
+                "http://token.evil.example/token",
+                &["read"],
+            )
+            .expect_err("cleartext non-loopback token endpoint must be rejected");
+        assert!(matches!(
+            error,
+            crate::error::ClientError::UnsupportedAuth(_)
+        ));
     }
 
     #[test]

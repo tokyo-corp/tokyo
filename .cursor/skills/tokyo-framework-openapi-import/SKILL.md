@@ -13,7 +13,7 @@ description: Guides Tokyo OpenAPI 3.0/3.1 normalization, import into the shared 
 
 ## Preserve compatibility
 
-- Match the supported and deliberately rejected behavior in `docs/compatibility.md`. Unsupported constructs must fail contextually, not disappear silently.
+- Match the supported and deliberately rejected behavior encoded in `crates/codegen/import-openapi/tests/coverage.rs`. Unsupported constructs must fail contextually, not disappear silently.
 - Preserve requiredness separately from nullability, wire names separately from Rust names, local `$ref` identity, normalized component schemas, auth alternatives, server precedence, media types, parameter encodings, and omission metadata.
 - Canonicalize collections whose source order has no meaning and validate every produced `Api`.
 - For additive serialized fields, use appropriate serde defaults when old snapshots remain meaningful.
@@ -24,7 +24,6 @@ description: Guides Tokyo OpenAPI 3.0/3.1 normalization, import into the shared 
 1. Add the narrowest importer test in `crates/codegen/import-openapi/tests/coverage.rs` for mapping and rejection behavior.
 2. Update a focused `examples/*.yaml` fixture when behavior must flow through emission or executable generated CLIs.
 3. If a fixture changes generated output, update the matching directory under `crates/codegen/emit-cli/tests/golden/` through the golden workflow, never by selective hand edits.
-4. Keep `docs/compatibility.md` evidence references valid when compatibility claims change.
 
 ## Focused validation
 

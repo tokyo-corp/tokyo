@@ -2,9 +2,9 @@
 
 pub const CUSTOM_RS: &str = r#"//! Legacy custom-command compatibility hook.
 //!
-//! New commands belong in `src/routes/**`; see `docs/routes.md` in the Tokyo
-//! repository. Tokyo keeps this user-owned hook so older generated projects
-//! continue to compile and existing custom commands survive regeneration.
+//! New commands belong in `src/routes/**`. Tokyo keeps this user-owned hook
+//! so older generated projects continue to compile and existing custom
+//! commands survive regeneration.
 
 pub fn augment(command: clap::Command) -> clap::Command {
     command

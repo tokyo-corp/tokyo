@@ -21,7 +21,7 @@ PACKAGES = [
     "tokyo-import-openapi",
     "tokyo-codegen-engine",
     "tokyo-emit-cli",
-    "tokyo-codegen",
+    "tokyo-cli",
 ]
 USER_AGENT = "tokyo-release (https://github.com/tokyo-corp/tokyo)"
 

@@ -4,7 +4,7 @@ We think that CLIs are the future of how AI agents will interact with APIs, but 
 
 Filesystem routes work on their own; OpenAPI 3.0/3.1 is an optional source of additional generated commands.
 
-The workspace targets Rust 1.90, edition 2024. The `tokyo` binary generates a
+The workspace targets Rust 1.97, edition 2024. The `tokyo` binary generates a
 standalone Cargo application that pins `tokyo-cli-runtime` to the same version.
 
 ## Install

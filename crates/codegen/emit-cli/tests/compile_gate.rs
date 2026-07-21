@@ -24,95 +24,113 @@ fn checked_in_golden_clis_compile_and_report_schema() {
         golden_root.display()
     );
 
-    for manifest in manifests {
-        let fixture = manifest
-            .parent()
-            .and_then(Path::file_name)
-            .and_then(|name| name.to_str())
-            .unwrap_or("<unknown>");
-        // Every golden intentionally uses the same generated package/binary
-        // name. Isolate Cargo targets so one fixture cannot reuse another
-        // fixture's executable solely because their package identities match.
-        let fixture_target_dir = target_dir.join(fixture);
-
-        let check = cargo_command(&cargo, &workspace)
-            .args(["check", "--locked", "--manifest-path"])
-            .arg(&manifest)
-            .arg("--target-dir")
-            .arg(&fixture_target_dir)
-            .output()
-            .unwrap_or_else(|error| panic!("failed to start cargo check for {fixture}: {error}"));
-        assert_success(fixture, "cargo check", &check);
-
-        if fixture == "auth" {
-            let tests = cargo_command(&cargo, &workspace)
-                .args(["test", "--quiet", "--locked", "--manifest-path"])
-                .arg(&manifest)
-                .arg("--target-dir")
-                .arg(&fixture_target_dir)
-                .output()
-                .unwrap_or_else(|error| {
-                    panic!("failed to start generated OAuth tests for {fixture}: {error}")
-                });
-            assert_success(fixture, "generated OAuth tests", &tests);
-
-            let doctor = cargo_command(&cargo, &workspace)
-                .args(["run", "--quiet", "--locked", "--manifest-path"])
-                .arg(&manifest)
-                .arg("--target-dir")
-                .arg(&fixture_target_dir)
-                .args([
-                    "--",
-                    "--output",
-                    "json",
-                    "auth",
-                    "doctor",
-                    "--scheme",
-                    "bearerAuth",
-                ])
-                .output()
-                .unwrap_or_else(|error| {
-                    panic!("failed to start generated OAuth doctor for {fixture}: {error}")
-                });
-            assert_success(fixture, "generated OAuth doctor", &doctor);
-            let report: serde_json::Value =
-                serde_json::from_slice(&doctor.stdout).expect("OAuth doctor emits JSON");
-            assert_eq!(report["healthy"], true, "{report}");
-            assert_authentication_access_contract(&cargo, &manifest, &fixture_target_dir);
+    // Every golden intentionally uses the same generated package/binary name,
+    // so each fixture gets its own isolated --target-dir (below) to prevent
+    // one fixture from reusing another's executable solely because their
+    // package identities match. That isolation is also what makes it safe to
+    // run every fixture's nested cargo commands concurrently: they never
+    // touch each other's target directory.
+    thread::scope(|scope| {
+        let handles: Vec<_> = manifests
+            .iter()
+            .map(|manifest| {
+                let cargo = &cargo;
+                let workspace = &workspace;
+                let target_dir = &target_dir;
+                scope.spawn(move || run_fixture(cargo, workspace, manifest, target_dir))
+            })
+            .collect();
+        for handle in handles {
+            handle.join().unwrap_or_else(|panic| {
+                std::panic::resume_unwind(panic);
+            });
         }
+    });
+}
 
-        let schema = cargo_command(&cargo, &workspace)
-            .args(["run", "--quiet", "--locked", "--manifest-path"])
-            .arg(&manifest)
+fn run_fixture(cargo: &OsString, workspace: &Path, manifest: &Path, target_dir: &Path) {
+    let fixture = manifest
+        .parent()
+        .and_then(Path::file_name)
+        .and_then(|name| name.to_str())
+        .unwrap_or("<unknown>");
+    let fixture_target_dir = target_dir.join(fixture);
+
+    let check = cargo_command(cargo, workspace)
+        .args(["check", "--locked", "--manifest-path"])
+        .arg(manifest)
+        .arg("--target-dir")
+        .arg(&fixture_target_dir)
+        .output()
+        .unwrap_or_else(|error| panic!("failed to start cargo check for {fixture}: {error}"));
+    assert_success(fixture, "cargo check", &check);
+
+    if fixture == "auth" {
+        let tests = cargo_command(cargo, workspace)
+            .args(["test", "--quiet", "--locked", "--manifest-path"])
+            .arg(manifest)
             .arg("--target-dir")
             .arg(&fixture_target_dir)
-            .args(["--", "schema"])
             .output()
             .unwrap_or_else(|error| {
-                panic!("failed to start generated schema command for {fixture}: {error}")
+                panic!("failed to start generated OAuth tests for {fixture}: {error}")
             });
-        assert_success(fixture, "generated CLI schema command", &schema);
-        assert_schema(fixture, &schema.stdout);
+        assert_success(fixture, "generated OAuth tests", &tests);
 
-        if fixture == "cli-types" {
-            assert_typed_primitive_commands(&cargo, &manifest, &fixture_target_dir);
+        let doctor = cargo_command(cargo, workspace)
+            .args(["run", "--quiet", "--locked", "--manifest-path"])
+            .arg(manifest)
+            .arg("--target-dir")
+            .arg(&fixture_target_dir)
+            .args([
+                "--",
+                "--output",
+                "json",
+                "auth",
+                "doctor",
+                "--scheme",
+                "bearerAuth",
+            ])
+            .output()
+            .unwrap_or_else(|error| {
+                panic!("failed to start generated OAuth doctor for {fixture}: {error}")
+            });
+        assert_success(fixture, "generated OAuth doctor", &doctor);
+        let report: serde_json::Value =
+            serde_json::from_slice(&doctor.stdout).expect("OAuth doctor emits JSON");
+        assert_eq!(report["healthy"], true, "{report}");
+        assert_authentication_access_contract(cargo, manifest, &fixture_target_dir);
+    }
+
+    let schema = cargo_command(cargo, workspace)
+        .args(["run", "--quiet", "--locked", "--manifest-path"])
+        .arg(manifest)
+        .arg("--target-dir")
+        .arg(&fixture_target_dir)
+        .args(["--", "schema"])
+        .output()
+        .unwrap_or_else(|error| {
+            panic!("failed to start generated schema command for {fixture}: {error}")
+        });
+    assert_success(fixture, "generated CLI schema command", &schema);
+    assert_schema(fixture, &schema.stdout);
+
+    if fixture == "cli-types" {
+        assert_typed_primitive_commands(cargo, manifest, &fixture_target_dir);
+    }
+    if fixture == "petstore" {
+        assert_connection_profiles(cargo, manifest, &fixture_target_dir);
+        assert_custom_command(cargo, manifest, &fixture_target_dir);
+        assert_agent_navigation_contract(cargo, manifest, &fixture_target_dir);
+        assert_presentation_control(cargo, manifest, &fixture_target_dir);
+    }
+    match fixture {
+        "serialization" => assert_parameter_and_multipart_wire(cargo, manifest, &fixture_target_dir),
+        "openapi-coverage" => {
+            assert_form_stream_and_binary_wire(cargo, manifest, &fixture_target_dir)
         }
-        if fixture == "petstore" {
-            assert_connection_profiles(&cargo, &manifest, &fixture_target_dir);
-            assert_custom_command(&cargo, &manifest, &fixture_target_dir);
-            assert_agent_navigation_contract(&cargo, &manifest, &fixture_target_dir);
-            assert_presentation_control(&cargo, &manifest, &fixture_target_dir);
-        }
-        match fixture {
-            "serialization" => {
-                assert_parameter_and_multipart_wire(&cargo, &manifest, &fixture_target_dir)
-            }
-            "openapi-coverage" => {
-                assert_form_stream_and_binary_wire(&cargo, &manifest, &fixture_target_dir)
-            }
-            "http-runtime" => assert_response_encodings(&cargo, &manifest, &fixture_target_dir),
-            _ => {}
-        }
+        "http-runtime" => assert_response_encodings(cargo, manifest, &fixture_target_dir),
+        _ => {}
     }
 }
 

@@ -6,7 +6,6 @@ use std::io::{Read as _, Write as _};
 use std::net::TcpListener;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
-use std::sync::atomic::{AtomicUsize, Ordering};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -15,7 +14,7 @@ use std::time::{Duration, Instant};
 fn checked_in_golden_clis_compile_and_report_schema() {
     let workspace = workspace_root();
     let golden_root = workspace.join("crates/codegen/emit-cli/tests/golden");
-    let target_dir = workspace.join("target/generated-cli-compile-gate");
+    let target_dir = workspace.join("target");
     let cargo = std::env::var_os("CARGO").unwrap_or_else(|| OsString::from("cargo"));
     let manifests = golden_manifests(&golden_root);
 
@@ -25,48 +24,15 @@ fn checked_in_golden_clis_compile_and_report_schema() {
         golden_root.display()
     );
 
-    // Every golden intentionally uses the same generated package/binary name,
-    // so each fixture gets its own isolated --target-dir (below) to prevent
-    // one fixture from reusing another's executable solely because their
-    // package identities match. That isolation is also what makes it safe to
-    // run fixtures' nested cargo commands concurrently: they never touch each
-    // other's target directory.
-    //
-    // Concurrency is capped at the core count rather than left unbounded:
-    // spawning all fixtures' cargo builds at once oversubscribes the CPU and
-    // can starve the timing-sensitive local capture-server threads a few
-    // fixtures use (see `serve_once`), causing spurious read timeouts under
-    // contention rather than real failures.
-    let workers = thread::available_parallelism()
-        .map(|n| n.get())
-        .unwrap_or(1)
-        .min(manifests.len());
-    let next = AtomicUsize::new(0);
-    thread::scope(|scope| {
-        let handles: Vec<_> = (0..workers)
-            .map(|_| {
-                let cargo = &cargo;
-                let workspace = &workspace;
-                let target_dir = &target_dir;
-                let manifests = &manifests;
-                let next = &next;
-                scope.spawn(move || {
-                    loop {
-                        let index = next.fetch_add(1, Ordering::Relaxed);
-                        let Some(manifest) = manifests.get(index) else {
-                            break;
-                        };
-                        run_fixture(cargo, workspace, manifest, target_dir);
-                    }
-                })
-            })
-            .collect();
-        for handle in handles {
-            handle.join().unwrap_or_else(|panic| {
-                std::panic::resume_unwind(panic);
-            });
-        }
-    });
+    // All fixtures share one target directory so their identical dependency
+    // graphs compile once. They intentionally use the same generated
+    // package/binary name, so run them serially to prevent one fixture from
+    // replacing another fixture's executable while it is still being tested.
+    // `run_fixture` cleans only that package between fixtures so Cargo cannot
+    // mistake the previous fixture's same-named binary for a current artifact.
+    for manifest in manifests {
+        run_fixture(&cargo, &workspace, &manifest, &target_dir);
+    }
 }
 
 fn run_fixture(cargo: &OsString, workspace: &Path, manifest: &Path, target_dir: &Path) {
@@ -75,23 +41,22 @@ fn run_fixture(cargo: &OsString, workspace: &Path, manifest: &Path, target_dir: 
         .and_then(Path::file_name)
         .and_then(|name| name.to_str())
         .unwrap_or("<unknown>");
-    let fixture_target_dir = target_dir.join(fixture);
-
-    let check = cargo_command(cargo, workspace)
-        .args(["check", "--locked", "--manifest-path"])
+    let clean = cargo_command(cargo, workspace)
+        .args(["clean", "--manifest-path"])
         .arg(manifest)
         .arg("--target-dir")
-        .arg(&fixture_target_dir)
+        .arg(target_dir)
+        .args(["-p", "generated-cli"])
         .output()
-        .unwrap_or_else(|error| panic!("failed to start cargo check for {fixture}: {error}"));
-    assert_success(fixture, "cargo check", &check);
+        .unwrap_or_else(|error| panic!("failed to clean generated CLI for {fixture}: {error}"));
+    assert_success(fixture, "cargo clean", &clean);
 
     if fixture == "auth" {
         let tests = cargo_command(cargo, workspace)
             .args(["test", "--quiet", "--locked", "--manifest-path"])
             .arg(manifest)
             .arg("--target-dir")
-            .arg(&fixture_target_dir)
+            .arg(target_dir)
             .output()
             .unwrap_or_else(|error| {
                 panic!("failed to start generated OAuth tests for {fixture}: {error}")
@@ -102,7 +67,7 @@ fn run_fixture(cargo: &OsString, workspace: &Path, manifest: &Path, target_dir: 
             .args(["run", "--quiet", "--locked", "--manifest-path"])
             .arg(manifest)
             .arg("--target-dir")
-            .arg(&fixture_target_dir)
+            .arg(target_dir)
             .args([
                 "--",
                 "--output",
@@ -120,14 +85,14 @@ fn run_fixture(cargo: &OsString, workspace: &Path, manifest: &Path, target_dir: 
         let report: serde_json::Value =
             serde_json::from_slice(&doctor.stdout).expect("OAuth doctor emits JSON");
         assert_eq!(report["healthy"], true, "{report}");
-        assert_authentication_access_contract(cargo, manifest, &fixture_target_dir);
+        assert_authentication_access_contract(cargo, manifest, target_dir);
     }
 
     let schema = cargo_command(cargo, workspace)
         .args(["run", "--quiet", "--locked", "--manifest-path"])
         .arg(manifest)
         .arg("--target-dir")
-        .arg(&fixture_target_dir)
+        .arg(target_dir)
         .args(["--", "schema"])
         .output()
         .unwrap_or_else(|error| {
@@ -137,22 +102,18 @@ fn run_fixture(cargo: &OsString, workspace: &Path, manifest: &Path, target_dir: 
     assert_schema(fixture, &schema.stdout);
 
     if fixture == "cli-types" {
-        assert_typed_primitive_commands(cargo, manifest, &fixture_target_dir);
+        assert_typed_primitive_commands(cargo, manifest, target_dir);
     }
     if fixture == "petstore" {
-        assert_connection_profiles(cargo, manifest, &fixture_target_dir);
-        assert_custom_command(cargo, manifest, &fixture_target_dir);
-        assert_agent_navigation_contract(cargo, manifest, &fixture_target_dir);
-        assert_presentation_control(cargo, manifest, &fixture_target_dir);
+        assert_connection_profiles(cargo, manifest, target_dir);
+        assert_custom_command(cargo, manifest, target_dir);
+        assert_agent_navigation_contract(cargo, manifest, target_dir);
+        assert_presentation_control(cargo, manifest, target_dir);
     }
     match fixture {
-        "serialization" => {
-            assert_parameter_and_multipart_wire(cargo, manifest, &fixture_target_dir)
-        }
-        "openapi-coverage" => {
-            assert_form_stream_and_binary_wire(cargo, manifest, &fixture_target_dir)
-        }
-        "http-runtime" => assert_response_encodings(cargo, manifest, &fixture_target_dir),
+        "serialization" => assert_parameter_and_multipart_wire(cargo, manifest, target_dir),
+        "openapi-coverage" => assert_form_stream_and_binary_wire(cargo, manifest, target_dir),
+        "http-runtime" => assert_response_encodings(cargo, manifest, target_dir),
         _ => {}
     }
 }

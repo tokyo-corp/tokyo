@@ -10,7 +10,7 @@ description: Guides deterministic Tokyo golden regeneration, generated-CLI compi
 - `crates/codegen/emit-cli/tests/golden.rs` imports each fixture and compares deterministic emitter output with `crates/codegen/emit-cli/tests/golden/<fixture>/`.
 - Existing `tokyo_emit_cli::UNMANAGED_STARTER_FILES` are intentionally preserved during golden updates.
 - `crates/codegen/emit-cli/tests/compile_gate.rs` discovers every golden `Cargo.toml`, checks each generated crate in an isolated target directory, runs `schema`, and executes fixture-specific contracts.
-- `.github/workflows/ci.yml` separately enforces formatting, workspace Clippy, workspace tests, and the ignored generated-CLI compile gate on Rust 1.90.0.
+- `.github/workflows/ci.yml` separately enforces formatting, workspace Clippy, workspace tests, and the ignored generated-CLI compile gate on Rust 1.97.1.
 
 ## Update goldens deliberately
 

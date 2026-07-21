@@ -233,20 +233,15 @@ impl RouteArgs {
 }
 
 /// Controls client availability and the default authentication mode for a route.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Default)]
 pub enum AuthPolicy {
     /// A local or explicitly anonymous route; no client is required.
+    #[default]
     None,
     /// A client may be used when supplied.
     Optional(AuthMode),
     /// Route execution requires a client.
     Required(AuthMode),
-}
-
-impl Default for AuthPolicy {
-    fn default() -> Self {
-        Self::None
-    }
 }
 
 impl AuthPolicy {

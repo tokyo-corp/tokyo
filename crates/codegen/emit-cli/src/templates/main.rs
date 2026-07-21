@@ -18,6 +18,7 @@ pub use tokyo_cli_runtime::{client, error, oauth, output, profile, session};
 
 fn main() -> std::process::ExitCode {
     tokyo_cli_runtime::configure_generated_cli_runtime(tokyo::config::CONFIG);
+    tokyo_cli_runtime::update::check_and_apply();
     cli::run()
 }
 "#;

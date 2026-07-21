@@ -19,6 +19,7 @@ path = "src/main.rs"
 anyhow.workspace = true
 clap = { workspace = true, features = ["derive"] }
 heck.workspace = true
+tokyo-cli-runtime.workspace = true
 tokyo-codegen-engine.workspace = true
 tokyo-emit-cli.workspace = true
 tokyo-ir.workspace = true

@@ -1924,7 +1924,7 @@ dependencies = [
 
 [[package]]
 name = "tokyo-cli"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "clap",
@@ -1944,7 +1944,7 @@ dependencies = [
 
 [[package]]
 name = "tokyo-cli-runtime"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "base64",
  "clap",
@@ -1964,7 +1964,7 @@ dependencies = [
 
 [[package]]
 name = "tokyo-codegen-engine"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "serde",
  "serde_json",
@@ -1976,7 +1976,7 @@ dependencies = [
 
 [[package]]
 name = "tokyo-emit-cli"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "heck",
  "prettyplease",
@@ -1991,7 +1991,7 @@ dependencies = [
 
 [[package]]
 name = "tokyo-import-openapi"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "heck",
  "oas3",
@@ -2003,7 +2003,7 @@ dependencies = [
 
 [[package]]
 name = "tokyo-ir"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "serde",
  "serde_json",

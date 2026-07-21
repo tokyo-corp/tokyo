@@ -7,8 +7,11 @@
 #![allow(dead_code)]
 
 mod cli;
+#[path = "../../src/commands/mod.rs"]
 mod commands;
+#[path = "../../src/middleware.rs"]
 mod middleware;
+#[path = "../../src/presentation.rs"]
 mod presentation;
 mod tokyo;
 

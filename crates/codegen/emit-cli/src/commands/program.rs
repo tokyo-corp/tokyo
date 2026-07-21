@@ -1,4 +1,4 @@
-//! Renders the top-level `src/cli.rs`: the global `Cli` struct, the
+//! Renders the top-level `.tokyo/src/cli.rs`: the global `Cli` struct, the
 //! resource-grouped `Command` enum (plus `api`/`auth`/`schema`/`completions`/
 //! `run`/`reset`), and the `run()`/`execute()` entry point.
 
@@ -95,6 +95,14 @@ pub fn render_generated_cli_source_tokens(
             }
         },
     );
+    let reset_id_binding = (!resources.is_empty()).then(|| {
+        quote! {
+            let id = match &entry.id {
+                serde_json::Value::String(value) => value.clone(),
+                other => other.to_string(),
+            };
+        }
+    });
     quote! {
         use std::io::IsTerminal as _;
 
@@ -1660,10 +1668,7 @@ pub fn render_generated_cli_source_tokens(
                             .into_iter()
                             .rev()
                         {
-                            let id = match &entry.id {
-                                serde_json::Value::String(value) => value.clone(),
-                                other => other.to_string(),
-                            };
+                            #reset_id_binding
                             let handled = match entry.resource.as_str() {
                                 #(#reset_arms)*
                                 _ => false,

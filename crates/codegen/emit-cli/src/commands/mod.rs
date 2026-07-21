@@ -1,5 +1,5 @@
 //! Renders every command-surface file in the generated CLI except the
-//! static ones in `crate::templates`: `src/cli.rs` (the global `Cli`/
+//! static ones in `crate::templates`: `.tokyo/src/cli.rs` (the global `Cli`/
 //! `Command`) and `src/commands/{module}.rs` (one per OpenAPI tag). Split by
 //! concern rather than by output file, since a resource's `Subcommand` enum
 //! and the top-level `Cli` both bottom out in per-endpoint rendering:

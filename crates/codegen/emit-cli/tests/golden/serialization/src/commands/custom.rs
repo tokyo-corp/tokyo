@@ -1,6 +1,8 @@
-//! Developer-owned custom commands.
+//! Legacy custom-command compatibility hook.
 //!
-//! Tokyo does not overwrite this file after the initial scaffold.
+//! New commands belong in `src/routes/**`. Tokyo keeps this user-owned hook
+//! so older generated projects continue to compile and existing custom
+//! commands survive regeneration.
 
 pub fn augment(command: clap::Command) -> clap::Command {
     command

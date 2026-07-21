@@ -18,8 +18,14 @@ cargo install tokyo-cli
 ```sh
 tokyo init my-cli --name my-cli
 cd my-cli
-tokyo generate
-cargo run -- index
+tokyo dev
+```
+
+`tokyo dev` watches and rebuilds the project. In another terminal—or from an
+agent—run the stable development binary directly:
+
+```sh
+./.tokyo/bin/my-cli index
 ```
 
 Add commands under `src/routes/**`. Each route file exports
@@ -37,14 +43,17 @@ adds project-specific instructions to agent discovery, and
 Run `tokyo generate` after adding, moving, or deleting routes. During active
 development, `tokyo dev` watches the config, OpenAPI snapshot, scenarios, and
 source tree; it regenerates when needed, runs `cargo check`, and keeps
-`.tokyo/bin/<name>` pointed at the latest successful build.
+`.tokyo/bin/<name>` pointed at the latest successful build. Agents should test
+through that path instead of repeatedly invoking `cargo run`.
 
 ## Ownership
 
-Tokyo manages `src/tokyo/**`, `src/cli.rs`, `src/main.rs`, and `.tokyo/**`.
-Developers own `src/routes/**`, `src/middleware.rs`,
+Tokyo manages only `.tokyo/**`; its generated Rust lives under
+`.tokyo/src/**` and can be regenerated at any time. Developers own
+`Cargo.toml`, `README.md`, `src/routes/**`, `src/middleware.rs`,
 `src/commands/guidance.rs`, `src/presentation.rs`, and the scaffolded Cursor
-skills under `.cursor/skills/**`.
+skills under `.cursor/skills/**`. The scaffolded manifest points its binary at
+`.tokyo/src/main.rs`, so add dependencies for handwritten routes there.
 
 Managed files are recorded with SHA-256 hashes in `.tokyo/manifest.json`.
 Generation refuses to overwrite a hand-edited managed file and removes only
@@ -78,7 +87,8 @@ errors instead of being silently omitted.
 
 ## Generator commands
 
-- `tokyo init`: create a route-first Cargo project and its Cursor skills.
+- `tokyo init`: create a complete, buildable route-first Cargo project and its
+  Cursor skills.
 - `tokyo generate`: emit managed files and scaffold missing developer-owned
   starters.
 - `tokyo check`: report generated drift without writing.

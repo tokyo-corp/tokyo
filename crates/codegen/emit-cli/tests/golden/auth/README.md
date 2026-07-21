@@ -1,7 +1,7 @@
 # generated-cli
 
 Tokyo CLI application. Add handwritten commands under `src/routes/**`; do not
-edit Tokyo-managed files under `src/tokyo/**`.
+edit Tokyo-managed files under `.tokyo/**`.
 
 Before your first authenticated request, log in once:
 
@@ -14,6 +14,16 @@ generated-cli auth login --scheme bearerAuth
 ```sh
 generated-cli --base-url https://api.example.com --token "$API_TOKEN" <resource> <command> [args]
 ```
+
+For local development, keep `tokyo dev` running and execute the stable binary
+directly:
+
+```sh
+./.tokyo/bin/generated-cli <command> [args]
+```
+
+Agents should use this path instead of repeatedly invoking `cargo run`. It
+always points at the latest successful development build.
 
 `--base-url`/`--token` can also come from `GENERATED_CLI_BASE_URL`/`GENERATED_CLI_TOKEN`.
 For APIs with multiple named security schemes, repeat `--credential SCHEME=VALUE`,
@@ -170,8 +180,8 @@ member method/path pairs.
 ## Extending this CLI with routes
 
 This directory is a normal Rust application that you own. Tokyo manages only
-`src/tokyo/**`, `src/cli.rs`, `src/main.rs`, and `.tokyo/**`. Application code
-is user-owned after the initial scaffold:
+`.tokyo/**`. Application code and root project files are user-owned after the
+initial scaffold:
 
 - `src/routes/**` — add commands with one `pub fn route() -> Route` per file;
   directories become nested command groups;
@@ -186,6 +196,9 @@ is user-owned after the initial scaffold:
 
 `src/commands/custom.rs` remains as a user-owned compatibility hook for older
 generated projects; new commands should be filesystem routes.
+
+`Cargo.toml` points the application binary at `.tokyo/src/main.rs`; add the
+dependencies needed by handwritten routes there.
 
 Regeneration never overwrites user-owned files, and hand-edits to Tokyo-managed
 files are detected (via content hashes in `.tokyo/manifest.json`) rather than

@@ -140,9 +140,9 @@ fn local_add_is_canonical_deterministic_and_generates_with_routes() {
     fs::remove_file(project.join("source.yaml")).unwrap();
     let generated = tokyo(&project, &["generate"]);
     assert!(generated.status.success(), "{generated:?}");
-    let registry = fs::read_to_string(project.join("src/tokyo/routes.rs")).unwrap();
+    let registry = fs::read_to_string(project.join(".tokyo/src/tokyo/routes.rs")).unwrap();
     assert!(registry.contains("local.rs"), "{registry}");
-    let commands = fs::read_to_string(project.join("src/tokyo/commands/mod.rs")).unwrap();
+    let commands = fs::read_to_string(project.join(".tokyo/src/tokyo/commands/mod.rs")).unwrap();
     assert!(commands.contains("pets"), "{commands}");
 }
 

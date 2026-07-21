@@ -26,6 +26,22 @@ pub struct RuntimeConfig {
     pub oauth_providers: &'static [OAuthProvider],
     /// Scenario programs embedded in the generated CLI.
     pub scenarios: &'static [CliScenario],
+    /// Self-update source, when this CLI opts into it. `None` keeps
+    /// [`crate::update::check_and_apply`] fully inert (no network calls).
+    pub update: Option<UpdateConfig>,
+}
+
+/// Where to find newer released versions of this CLI, and how to recognize
+/// the current one.
+#[derive(Clone, Copy, Debug)]
+pub struct UpdateConfig {
+    /// `owner/repo` on GitHub whose Releases publish this CLI's binaries.
+    pub repository: &'static str,
+    /// Release asset filename prefix, e.g. `"tokyo"` for
+    /// `tokyo-v0.1.2-x86_64-unknown-linux-gnu.tar.gz`.
+    pub asset_prefix: &'static str,
+    /// This build's version, e.g. `env!("CARGO_PKG_VERSION")`.
+    pub current_version: &'static str,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -53,6 +69,7 @@ const DEFAULT_CONFIG: RuntimeConfig = RuntimeConfig {
     environments: &[],
     oauth_providers: &[],
     scenarios: &[],
+    update: None,
 };
 
 /// Install the generated CLI's runtime configuration.

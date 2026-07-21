@@ -24,4 +24,5 @@ pub const CONFIG: tokyo_cli_runtime::RuntimeConfig = tokyo_cli_runtime::RuntimeC
         },
     ],
     scenarios: &[],
+    update: None,
 };

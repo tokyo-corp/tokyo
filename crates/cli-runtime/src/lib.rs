@@ -27,8 +27,12 @@ pub mod scenario;
 pub mod schema;
 /// Per-process session state used by scenarios and generated commands.
 pub mod session;
+/// Background self-update against GitHub Releases.
+pub mod update;
 
-pub use config::{CliScenario, ProductIdentity, RuntimeConfig, configure_generated_cli_runtime};
+pub use config::{
+    CliScenario, ProductIdentity, RuntimeConfig, UpdateConfig, configure_generated_cli_runtime,
+};
 
 /// Common imports for handwritten route modules.
 pub mod prelude {

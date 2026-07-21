@@ -134,6 +134,7 @@ pub fn render_generated_cli_runtime_config_source_file(
          \x20   environments: &[\n{named_environment_entries_rust_source}],\n\
          \x20   oauth_providers: &[\n{oauth_provider_entries_rust_source}],\n\
          \x20   scenarios: &[\n{embedded_scenario_entries_rust_source}],\n\
+         \x20   update: None,\n\
          }};\n"
     )
 }

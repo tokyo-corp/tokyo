@@ -11,4 +11,5 @@ pub const CONFIG: tokyo_cli_runtime::RuntimeConfig = tokyo_cli_runtime::RuntimeC
     environments: &[],
     oauth_providers: &[],
     scenarios: &[],
+    update: None,
 };

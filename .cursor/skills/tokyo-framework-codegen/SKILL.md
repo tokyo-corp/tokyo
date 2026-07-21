@@ -31,9 +31,9 @@ description: Guides changes to Tokyo project scaffolding, route discovery, gener
 Run only the smallest relevant commands:
 
 ```sh
-cargo test -p tokyo-codegen --test cli <test-name> --locked
-cargo test -p tokyo-codegen --lib --locked
-cargo check -p tokyo-codegen --locked
+cargo test -p tokyo-cli --test cli <test-name> --locked
+cargo test -p tokyo-cli --lib --locked
+cargo check -p tokyo-cli --locked
 ```
 
 Use a test-name filter for ownership, scaffold, route, migration, or transaction changes. Do not run the workspace suite unless explicitly requested.

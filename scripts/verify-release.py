@@ -19,7 +19,7 @@ EXPECTED_PACKAGES = {
     "tokyo-codegen-engine",
     "tokyo-emit-cli",
     "tokyo-cli-runtime",
-    "tokyo-codegen",
+    "tokyo-cli",
 }
 EXPECTED_REPOSITORY = "https://github.com/tokyo-corp/tokyo"
 

@@ -78,4 +78,4 @@ jobs:
           -p tokyo-import-openapi
           -p tokyo-codegen-engine
           -p tokyo-emit-cli
-          -p tokyo-codegen
+          -p tokyo-cli

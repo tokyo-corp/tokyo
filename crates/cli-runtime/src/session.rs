@@ -8,6 +8,21 @@ fn path_inside_current_cli_session_directory(
     Ok(crate::profile::cli_runtime_config_directory()?.join(session_file_name))
 }
 
+/// Creates the session directory owner-only. Session files (`last.json`,
+/// `transcript.jsonl`) can contain response bodies and request URLs, so the
+/// directory must be `0700` even on the first unauthenticated command — before
+/// any credential write would otherwise be the first thing to tighten it.
+fn create_private_session_directory(directory: &std::path::Path) {
+    if std::fs::create_dir_all(directory).is_err() {
+        return;
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt as _;
+        let _ = std::fs::set_permissions(directory, std::fs::Permissions::from_mode(0o700));
+    }
+}
+
 /// Persists the most recent successful JSON response so a later argument can
 /// reference it as `@last:/json/pointer/syntax` instead of the caller
 /// re-parsing and re-typing IDs between commands.
@@ -19,7 +34,7 @@ pub fn record_json_response_as_last_response(bytes: &[u8]) {
         return;
     };
     if let Some(parent_directory) = last_response_file_path.parent() {
-        let _ = std::fs::create_dir_all(parent_directory);
+        create_private_session_directory(parent_directory);
     }
     let _ = std::fs::write(last_response_file_path, response_json_value.to_string());
 }
@@ -157,7 +172,7 @@ pub fn append_created_resource_to_session_reset_log(
         return;
     };
     if let Some(parent_directory) = created_resources_log_path.parent() {
-        let _ = std::fs::create_dir_all(parent_directory);
+        create_private_session_directory(parent_directory);
     }
     let Ok(mut created_resources_log_file) = std::fs::OpenOptions::new()
         .create(true)
@@ -206,7 +221,7 @@ pub fn append_completed_request_to_session_transcript(
         return;
     };
     if let Some(parent_directory) = transcript_path.parent() {
-        let _ = std::fs::create_dir_all(parent_directory);
+        create_private_session_directory(parent_directory);
     }
     let Ok(mut transcript_file) = std::fs::OpenOptions::new()
         .create(true)
@@ -278,6 +293,23 @@ pub fn split_scenario_file_line_into_cli_arguments(line: &str) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    #[cfg(unix)]
+    fn session_directory_is_created_owner_only() {
+        use std::os::unix::fs::PermissionsExt as _;
+        let base = std::env::temp_dir().join(format!("tokyo-session-perms-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        let directory = base.join("nested");
+        create_private_session_directory(&directory);
+        let mode = std::fs::metadata(&directory)
+            .expect("session directory should exist")
+            .permissions()
+            .mode()
+            & 0o777;
+        let _ = std::fs::remove_dir_all(&base);
+        assert_eq!(mode, 0o700, "session dir must be owner-only, got {mode:o}");
+    }
 
     #[test]
     fn set_refs_support_field_values_and_can_feed_last_resolution() {

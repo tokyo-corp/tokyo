@@ -1532,7 +1532,7 @@ fn parse_oauth_authorization_url(value: &str) -> Result<AuthUrl, crate::error::C
         .map_err(|error| crate::error::ClientError::Decode(error.to_string()))
 }
 
-fn oauth_http_agent() -> ureq::Agent {
+pub(crate) fn oauth_http_agent() -> ureq::Agent {
     // OAuth token and discovery requests must not follow redirects: doing so can
     // forward credentials to an attacker-controlled destination.
     ureq::AgentBuilder::new().redirects(0).build()
@@ -1543,7 +1543,7 @@ fn parse_oauth_token_url(value: &str) -> Result<TokenUrl, crate::error::ClientEr
         .map_err(|error| crate::error::ClientError::Decode(error.to_string()))
 }
 
-fn validate_oauth_endpoint_url(value: &str) -> Result<(), crate::error::ClientError> {
+pub(crate) fn validate_oauth_endpoint_url(value: &str) -> Result<(), crate::error::ClientError> {
     let url = url::Url::parse(value)
         .map_err(|error| crate::error::ClientError::Decode(error.to_string()))?;
     let allowed = match url.scheme() {

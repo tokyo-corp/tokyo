@@ -237,10 +237,11 @@ impl<'de> Deserialize<'de> for Response {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 /// Coarse response decoding strategy.
 pub enum ResponseEncoding {
     /// No response body is expected.
+    #[default]
     Empty,
     /// Decode as JSON.
     Json,
@@ -248,12 +249,6 @@ pub enum ResponseEncoding {
     Text,
     /// Preserve raw bytes.
     Binary,
-}
-
-impl Default for ResponseEncoding {
-    fn default() -> Self {
-        Self::Empty
-    }
 }
 
 fn default_json_response_encoding() -> ResponseEncoding {

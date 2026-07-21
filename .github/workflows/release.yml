@@ -21,7 +21,7 @@ jobs:
       contents: read
     steps:
       - uses: actions/checkout@v5
-      - uses: dtolnay/rust-toolchain@1.90.0
+      - uses: dtolnay/rust-toolchain@1.97.1
         with:
           components: clippy,rustfmt
       - uses: Swatinem/rust-cache@v2
@@ -50,7 +50,7 @@ jobs:
       id-token: write
     steps:
       - uses: actions/checkout@v5
-      - uses: dtolnay/rust-toolchain@1.90.0
+      - uses: dtolnay/rust-toolchain@1.97.1
       - uses: rust-lang/crates-io-auth-action@v1
         id: auth
       - run: python3 scripts/publish-crates.py
@@ -84,7 +84,7 @@ jobs:
       contents: read
     steps:
       - uses: actions/checkout@v5
-      - uses: dtolnay/rust-toolchain@1.90.0
+      - uses: dtolnay/rust-toolchain@1.97.1
         with:
           targets: ${{ matrix.target }}
       - uses: Swatinem/rust-cache@v2
@@ -138,6 +138,7 @@ jobs:
       - name: Create or update release
         env:
           GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
         run: |
           if gh release view "${GITHUB_REF_NAME}" >/dev/null 2>&1; then
             gh release upload "${GITHUB_REF_NAME}" artifacts/* --clobber
